@@ -9,5 +9,5 @@
 int main() {
     IntegrationSystem system; ///< 创建系统实例（内部完成各子系统初始化与数据加载）
     system.run();             ///< 进入登录与菜单主循环
-    return 0;
+    return 0;//test
 }
