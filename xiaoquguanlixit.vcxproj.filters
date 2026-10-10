@@ -1,0 +1,167 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="资源文件">
+      <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
+      <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
+    </Filter>
+    <Filter Include="include">
+      <UniqueIdentifier>{c4594482-896b-49d4-8e2f-de2528bab4fd}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="include\access_system">
+      <UniqueIdentifier>{94ade587-dcdb-4e7f-8d94-2803c69d0a34}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="include\common">
+      <UniqueIdentifier>{64ab6fde-8cac-42b4-a70c-51ddb496da05}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="include\integration">
+      <UniqueIdentifier>{c9005227-96b8-4999-a866-bed39300cdf3}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="include\models">
+      <UniqueIdentifier>{5b03648d-58bc-47eb-8317-b565503f9e4c}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="include\owner_system">
+      <UniqueIdentifier>{562cdf9f-6a32-4d1b-a8d3-03cdb536d4f0}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="include\property_system">
+      <UniqueIdentifier>{be20cf2c-0b10-42d1-a0f1-a84aed4cbef0}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src">
+      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
+      <Extensions>cpp;c;cc;cxx;c++;cppm;ixx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
+    </Filter>
+    <Filter Include="src\access_system">
+      <UniqueIdentifier>{c7ccb248-3fcb-42b6-91ca-36e60d1ab1f1}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\common">
+      <UniqueIdentifier>{ff6d7119-fa9c-4d60-aa03-a477a8a76fe2}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\integration">
+      <UniqueIdentifier>{515d8dba-74a6-4a6d-8b29-04c1f0b6491e}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\models">
+      <UniqueIdentifier>{0c0189f9-f570-44bf-9abc-0daf78e0384a}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\owner_system">
+      <UniqueIdentifier>{8c23f0ec-f331-4a9d-86bf-5e8de8eb9fe2}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\property_system">
+      <UniqueIdentifier>{85c96d6d-5131-4996-8f42-cbb4d40397c4}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="src\access_system\AccessManagementSystem.cpp">
+      <Filter>src\access_system</Filter>
+    </ClCompile>
+    <ClCompile Include="src\common\CsvUtils.cpp">
+      <Filter>src\common</Filter>
+    </ClCompile>
+    <ClCompile Include="src\integration\IntegrationSystem.cpp">
+      <Filter>src\integration</Filter>
+    </ClCompile>
+    <ClCompile Include="src\models\AccessRecord.cpp">
+      <Filter>src\models</Filter>
+    </ClCompile>
+    <ClCompile Include="src\models\AccessStaff.cpp">
+      <Filter>src\models</Filter>
+    </ClCompile>
+    <ClCompile Include="src\models\Admin.cpp">
+      <Filter>src\models</Filter>
+    </ClCompile>
+    <ClCompile Include="src\models\FeeItem.cpp">
+      <Filter>src\models</Filter>
+    </ClCompile>
+    <ClCompile Include="src\models\FeeRecord.cpp">
+      <Filter>src\models</Filter>
+    </ClCompile>
+    <ClCompile Include="src\models\Owner.cpp">
+      <Filter>src\models</Filter>
+    </ClCompile>
+    <ClCompile Include="src\models\ParkingRecord.cpp">
+      <Filter>src\models</Filter>
+    </ClCompile>
+    <ClCompile Include="src\models\PropertyStaff.cpp">
+      <Filter>src\models</Filter>
+    </ClCompile>
+    <ClCompile Include="src\models\PropertyTask.cpp">
+      <Filter>src\models</Filter>
+    </ClCompile>
+    <ClCompile Include="src\models\User.cpp">
+      <Filter>src\models</Filter>
+    </ClCompile>
+    <ClCompile Include="src\models\VehicleAccessRecord.cpp">
+      <Filter>src\models</Filter>
+    </ClCompile>
+    <ClCompile Include="src\owner_system\AccountService.cpp">
+      <Filter>src\owner_system</Filter>
+    </ClCompile>
+    <ClCompile Include="src\owner_system\IOwnerQuery.cpp">
+      <Filter>src\owner_system</Filter>
+    </ClCompile>
+    <ClCompile Include="src\owner_system\OwnerManagementSystem.cpp">
+      <Filter>src\owner_system</Filter>
+    </ClCompile>
+    <ClCompile Include="src\property_system\PropertyManagementSystem.cpp">
+      <Filter>src\property_system</Filter>
+    </ClCompile>
+    <ClCompile Include="src\main.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="include\access_system\AccessManagementSystem.h">
+      <Filter>include\access_system</Filter>
+    </ClInclude>
+    <ClInclude Include="include\common\CsvUtils.h">
+      <Filter>include\common</Filter>
+    </ClInclude>
+    <ClInclude Include="include\integration\IntegrationSystem.h">
+      <Filter>include\integration</Filter>
+    </ClInclude>
+    <ClInclude Include="include\models\AccessRecord.h">
+      <Filter>include\models</Filter>
+    </ClInclude>
+    <ClInclude Include="include\models\AccessStaff.h">
+      <Filter>include\models</Filter>
+    </ClInclude>
+    <ClInclude Include="include\models\Admin.h">
+      <Filter>include\models</Filter>
+    </ClInclude>
+    <ClInclude Include="include\models\FeeItem.h">
+      <Filter>include\models</Filter>
+    </ClInclude>
+    <ClInclude Include="include\models\FeeRecord.h">
+      <Filter>include\models</Filter>
+    </ClInclude>
+    <ClInclude Include="include\models\Owner.h">
+      <Filter>include\models</Filter>
+    </ClInclude>
+    <ClInclude Include="include\models\ParkingRecord.h">
+      <Filter>include\models</Filter>
+    </ClInclude>
+    <ClInclude Include="include\models\PropertyStaff.h">
+      <Filter>include\models</Filter>
+    </ClInclude>
+    <ClInclude Include="include\models\PropertyTask.h">
+      <Filter>include\models</Filter>
+    </ClInclude>
+    <ClInclude Include="include\models\User.h">
+      <Filter>include\models</Filter>
+    </ClInclude>
+    <ClInclude Include="include\models\VehicleAccessRecord.h">
+      <Filter>include\models</Filter>
+    </ClInclude>
+    <ClInclude Include="include\owner_system\AccountService.h">
+      <Filter>include\owner_system</Filter>
+    </ClInclude>
+    <ClInclude Include="include\owner_system\IOwnerQuery.h">
+      <Filter>include\owner_system</Filter>
+    </ClInclude>
+    <ClInclude Include="include\owner_system\OwnerManagementSystem.h">
+      <Filter>include\owner_system</Filter>
+    </ClInclude>
+    <ClInclude Include="include\property_system\PropertyManagementSystem.h">
+      <Filter>include\property_system</Filter>
+    </ClInclude>
+  </ItemGroup>
+</Project>
