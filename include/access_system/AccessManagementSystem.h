@@ -35,14 +35,14 @@ public:
     explicit AccessManagementSystem(const IOwnerQuery& owners,
                                     std::string dataDirectory = "data");
 
-    /// 从 3 个 CSV 文件加载全部数据到内存（覆盖式刷新）
+    /// 从 3 个 CSV 文件加载全部数据到内存
     void load();
     /// 将内存中的全部数据写回 3 个 CSV 文件
     bool save() const;
 
-    /// 登记一次人员出入（校验业主存在、记录编号唯一）
+    /// 登记一次人员出入
     bool registerPerson(const AccessRecord& record);
-    /// 登记一次车辆出入（校验业主存在、记录编号唯一）
+    /// 登记一次车辆出入
     bool registerVehicle(const VehicleAccessRecord& record);
     /// 分配车位（车位已被占用时拒绝；已登记的车位则更新车牌/业主信息）
     bool assignParking(const ParkingRecord& record);
@@ -55,6 +55,6 @@ public:
     /// 按车牌号查询全部出入记录
     std::vector<VehicleAccessRecord> queryVehicle(
         const std::string& plateNumber) const;
-    /// 获取全部车位记录（只读引用，避免拷贝）
+    /// 获取全部车位记录
     const std::vector<ParkingRecord>& parking() const;
 };
