@@ -220,7 +220,8 @@ void IntegrationSystem::propertyMenu() {
 
 /// 门禁菜单：门禁人员/管理员可进入
 /// 权限：具备 管理门禁 权限
-/// 功能：人员出入登记、车辆出入登记、车位分配/释放、记录查询。
+/// 功能：人员出入登记、车辆出入登记、车位分配/释放、记录查询、
+///       访客登记/签离/在访查询。
 void IntegrationSystem::accessMenu() {
     // 权限校验：必须拥有门禁管理权限
     if (!currentUser_ ||
@@ -238,6 +239,9 @@ void IntegrationSystem::accessMenu() {
                   << "5. 查询人员记录\n"
                   << "6. 查询车辆记录\n"
                   << "7. 列出车位\n"
+                  << "8. 登记访客\n"
+                  << "9. 访客签离\n"
+                  << "10. 查看在访访客\n"
                   << "0. 返回\n";
         const std::string choice = input("请选择：");
 
@@ -302,6 +306,44 @@ void IntegrationSystem::accessMenu() {
                 std::cout << record.spaceId << " " << record.plateNumber
                           << " " << record.ownerId << " " << record.status
                           << '\n';
+            }
+        } else if (choice == "8") {
+            // 登记访客：只收集姓名/电话/被访业主/事由，
+            // 编号与进入时间由系统自动生成
+            Visitor visitor;
+            visitor.name = input("访客姓名：");
+            visitor.phone = input("访客电话（可留空）：");
+            visitor.hostOwnerId = input("被访业主编号：");
+            visitor.reason = input("来访事由：");
+            std::cout << (access_.registerPerson(visitor)
+                              ? "访客登记成功。\n"
+                              : "访客登记失败，请检查业主编号等信息。\n");
+        } else if (choice == "9") {
+            // 访客签离：先列出在访访客，再按编号签离（时间自动）
+            const std::vector<Visitor> visiting = access_.queryVisiting();
+            if (visiting.empty()) {
+                std::cout << "当前没有在访访客。\n";
+                continue;
+            }
+            for (const Visitor& visitor : visiting) {
+                std::cout << visitor.visitorId << " " << visitor.name
+                          << "，拜访业主：" << visitor.hostOwnerId << '\n';
+            }
+            const std::string visitorId = input("请输入签离访客编号：");
+            std::cout << (access_.visitorCheckout(visitorId)
+                              ? "访客签离成功。\n"
+                              : "访客签离失败，请检查编号或访客状态。\n");
+        } else if (choice == "10") {
+            // 查看在访访客明细
+            const std::vector<Visitor> visiting = access_.queryVisiting();
+            if (visiting.empty()) {
+                std::cout << "当前没有在访访客。\n";
+            }
+            for (const Visitor& visitor : visiting) {
+                std::cout << visitor.visitorId << " " << visitor.name
+                          << "，电话：" << visitor.phone
+                          << "，拜访业主：" << visitor.hostOwnerId
+                          << "，进入时间：" << visitor.enterTime << '\n';
             }
         } else {
             std::cout << "无效选项。\n";

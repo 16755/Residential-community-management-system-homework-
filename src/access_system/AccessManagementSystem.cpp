@@ -5,28 +5,47 @@
 #include "access_system/AccessManagementSystem.h"
 
 #include <algorithm>
+#include <ctime>
 #include <fstream>
 #include <utility>
 
 #include "common/CsvUtils.h"
 
-/// 构造函数：绑定业主查询接口，拼接三个数据文件路径并立即加载
+namespace {
+/// 取当前系统时间，格式 "YYYY.MM.DD HH:MM:SS"
+std::string nowDateTime() {
+    std::time_t now = std::time(nullptr);
+    std::tm local{};
+#ifdef _WIN32
+    localtime_s(&local, &now);
+#else
+    localtime_r(&now, &local);
+#endif
+    char buffer[32];
+    std::strftime(buffer, sizeof(buffer), "%Y.%m.%d %H:%M:%S", &local);
+    return buffer;
+}
+} // namespace
+
+/// 构造函数：绑定业主查询接口，拼接四个数据文件路径并立即加载
 AccessManagementSystem::AccessManagementSystem(
     const IOwnerQuery& owners, std::string dataDirectory)
     : owners_(owners),
       peopleFile_(dataDirectory + "/access_records.csv"),
       vehicleFile_(dataDirectory + "/vehicle_access_records.csv"),
-      parkingFile_(dataDirectory + "/parking_records.csv") {
+      parkingFile_(dataDirectory + "/parking_records.csv"),
+      visitorFile_(dataDirectory + "/visitors.csv") {
     load();
 }
 
-/// 从 3 个 CSV 文件加载全部数据
+/// 从 4 个 CSV 文件加载全部数据
 /// 逻辑：分别跳过各文件表头，按固定字段顺序构造记录：
-///       人员出入 6 列、车辆出入 6 列、车位 5 列。
+///       人员出入 6 列、车辆出入 6 列、车位 5 列、访客档案 8 列。
 void AccessManagementSystem::load() {
     people_.clear();
     vehicles_.clear();
     parking_.clear();
+    visitors_.clear();
 
     std::string line;
     std::ifstream peopleInput(peopleFile_);
@@ -58,9 +77,20 @@ void AccessManagementSystem::load() {
                 {fields[0], fields[1], fields[2], fields[3], fields[4]});
         }
     }
+
+    std::ifstream visitorInput(visitorFile_);
+    std::getline(visitorInput, line); // 跳过表头
+    while (std::getline(visitorInput, line)) {
+        const std::vector<std::string> fields = splitCsv(line);
+        if (fields.size() >= 8) {
+            visitors_.push_back(
+                {fields[0], fields[1], fields[2], fields[3],
+                 fields[4], fields[5], fields[6], fields[7]});
+        }
+    }
 }
 
-/// 将内存中的全部数据写回 3 个 CSV 文件
+/// 将内存中的全部数据写回 4 个 CSV 文件
 /// 逻辑：先确保目录存在，再分别写入表头与数据行（字段统一转义）。
 bool AccessManagementSystem::save() const {
     if (!ensureParentDirectory(peopleFile_)) {
@@ -70,7 +100,8 @@ bool AccessManagementSystem::save() const {
     std::ofstream peopleOutput(peopleFile_);
     std::ofstream vehicleOutput(vehicleFile_);
     std::ofstream parkingOutput(parkingFile_);
-    if (!peopleOutput || !vehicleOutput || !parkingOutput) {
+    std::ofstream visitorOutput(visitorFile_);
+    if (!peopleOutput || !vehicleOutput || !parkingOutput || !visitorOutput) {
         return false;
     }
 
@@ -103,11 +134,24 @@ bool AccessManagementSystem::save() const {
                       << csvSafe(record.registeredAt) << '\n';
     }
 
+    visitorOutput << "visitorId,name,phone,hostOwnerId,reason,"
+                     "enterTime,leaveTime,status\n";
+    for (const Visitor& visitor : visitors_) {
+        visitorOutput << csvSafe(visitor.visitorId) << ','
+                      << csvSafe(visitor.name) << ','
+                      << csvSafe(visitor.phone) << ','
+                      << csvSafe(visitor.hostOwnerId) << ','
+                      << csvSafe(visitor.reason) << ','
+                      << csvSafe(visitor.enterTime) << ','
+                      << csvSafe(visitor.leaveTime) << ','
+                      << csvSafe(visitor.status) << '\n';
+    }
+
     return true;
 }
 
-/// 登记一次人员出入
-/// 校验：编号/人员编号/类型/方向/时间非空、记录编号唯一、
+/// 登记一次业主出入
+/// 校验：编号/人员编号/方向/时间非空、personType=Owner、记录编号唯一、
 ///       关联业主必须存在于业主系统；通过后追加并落盘。
 bool AccessManagementSystem::registerPerson(const AccessRecord& record) {
     const bool duplicate = std::any_of(
@@ -115,13 +159,98 @@ bool AccessManagementSystem::registerPerson(const AccessRecord& record) {
             return current.id == record.id;
         });
     const bool ownerExists = owners_.findOwnerById(record.personId).has_value();
-    if (record.id.empty() || record.personId.empty() || record.personType.empty() ||
-        record.direction.empty() || record.time.empty() || duplicate || !ownerExists) {
+    if (record.id.empty() || record.personId.empty() ||
+        record.personType != "Owner" || record.direction.empty() ||
+        record.time.empty() || duplicate || !ownerExists) {
         return false;
     }
 
     people_.push_back(record);
     return save();
+}
+
+/// 生成访客编号
+/// 规则：基础为 "YYYY.MM.DD-visitor"；同日已存在时追加 -2、-3... 保证唯一。
+std::string AccessManagementSystem::generateVisitorId() const {
+    std::time_t now = std::time(nullptr);
+    std::tm local{};
+#ifdef _WIN32
+    localtime_s(&local, &now);
+#else
+    localtime_r(&now, &local);
+#endif
+    char dateBuffer[16];
+    std::strftime(dateBuffer, sizeof(dateBuffer), "%Y.%m.%d", &local);
+    const std::string base = std::string(dateBuffer) + "-visitor";
+
+    std::string candidate = base;
+    int suffix = 2;
+    bool alreadyUsed = true;
+    while (alreadyUsed) {
+        alreadyUsed = std::any_of(
+            visitors_.begin(), visitors_.end(),
+            [&](const Visitor& visitor) {
+                return visitor.visitorId == candidate;
+            });
+        if (alreadyUsed) {
+            candidate = base + "-" + std::to_string(suffix++);
+        }
+    }
+    return candidate;
+}
+
+/// 登记访客到访（registerPerson 重载）
+/// 逻辑：校验姓名/被访业主非空且被访业主存在；自动生成编号、进入时间，
+///       置为 Visiting；保存访客档案，并同步写入一条 Enter 流水后落盘。
+bool AccessManagementSystem::registerPerson(const Visitor& input) {
+    if (input.name.empty() || input.hostOwnerId.empty()) {
+        return false;
+    }
+    if (!owners_.findOwnerById(input.hostOwnerId).has_value()) {
+        return false;
+    }
+
+    Visitor visitor = input;
+    visitor.visitorId = generateVisitorId();
+    visitor.enterTime = nowDateTime();
+    visitor.leaveTime.clear();
+    visitor.status = "Visiting";
+
+    AccessRecord enterRecord;
+    enterRecord.id = visitor.visitorId + "-E";
+    enterRecord.personId = visitor.visitorId;
+    enterRecord.personType = "Visitor";
+    enterRecord.direction = "Enter";
+    enterRecord.time = visitor.enterTime;
+    enterRecord.note = visitor.reason;
+
+    visitors_.push_back(visitor);
+    people_.push_back(enterRecord);
+    return save();
+}
+
+/// 访客签离
+/// 逻辑：找到状态为 Visiting 的访客，置为 Left、写签离时间，
+///       同步写入一条 Leave 流水后落盘；档案保留不删除。
+bool AccessManagementSystem::visitorCheckout(const std::string& visitorId) {
+    for (Visitor& visitor : visitors_) {
+        if (visitor.visitorId == visitorId &&
+            visitor.status == "Visiting") {
+            visitor.status = "Left";
+            visitor.leaveTime = nowDateTime();
+
+            AccessRecord leaveRecord;
+            leaveRecord.id = visitor.visitorId + "-L";
+            leaveRecord.personId = visitor.visitorId;
+            leaveRecord.personType = "Visitor";
+            leaveRecord.direction = "Leave";
+            leaveRecord.time = visitor.leaveTime;
+            leaveRecord.note = visitor.reason;
+            people_.push_back(leaveRecord);
+            return save();
+        }
+    }
+    return false;
 }
 
 /// 登记一次车辆出入
@@ -215,4 +344,20 @@ std::vector<VehicleAccessRecord> AccessManagementSystem::queryVehicle(
 /// 获取全部车位记录（只读引用，避免拷贝）
 const std::vector<ParkingRecord>& AccessManagementSystem::parking() const {
     return parking_;
+}
+
+/// 查询当前所有在访（Visiting）访客
+std::vector<Visitor> AccessManagementSystem::queryVisiting() const {
+    std::vector<Visitor> result;
+    for (const Visitor& visitor : visitors_) {
+        if (visitor.status == "Visiting") {
+            result.push_back(visitor);
+        }
+    }
+    return result;
+}
+
+/// 获取全部访客档案（只读引用，避免拷贝）
+const std::vector<Visitor>& AccessManagementSystem::visitors() const {
+    return visitors_;
 }
