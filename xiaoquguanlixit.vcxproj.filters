@@ -59,6 +59,9 @@
     <ClCompile Include="src\integration\IntegrationSystem.cpp">
       <Filter>src\integration</Filter>
     </ClCompile>
+    <ClCompile Include="src\models\AccessPoint.cpp">
+      <Filter>src\models</Filter>
+    </ClCompile>
     <ClCompile Include="src\models\AccessRecord.cpp">
       <Filter>src\models</Filter>
     </ClCompile>
@@ -117,6 +120,9 @@
     </ClInclude>
     <ClInclude Include="include\integration\IntegrationSystem.h">
       <Filter>include\integration</Filter>
+    </ClInclude>
+    <ClInclude Include="include\models\AccessPoint.h">
+      <Filter>include\models</Filter>
     </ClInclude>
     <ClInclude Include="include\models\AccessRecord.h">
       <Filter>include\models</Filter>

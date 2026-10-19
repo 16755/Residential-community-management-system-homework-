@@ -23,6 +23,7 @@
     <ClCompile Include="src\common\CsvUtils.cpp" />
     <ClCompile Include="src\integration\IntegrationSystem.cpp" />
     <ClCompile Include="src\main.cpp" />
+    <ClCompile Include="src\models\AccessPoint.cpp" />
     <ClCompile Include="src\models\AccessRecord.cpp" />
     <ClCompile Include="src\models\AccessStaff.cpp" />
     <ClCompile Include="src\models\Admin.cpp" />
@@ -43,6 +44,7 @@
     <ClInclude Include="include\access_system\AccessManagementSystem.h" />
     <ClInclude Include="include\common\CsvUtils.h" />
     <ClInclude Include="include\integration\IntegrationSystem.h" />
+    <ClInclude Include="include\models\AccessPoint.h" />
     <ClInclude Include="include\models\AccessRecord.h" />
     <ClInclude Include="include\models\AccessStaff.h" />
     <ClInclude Include="include\models\Admin.h" />

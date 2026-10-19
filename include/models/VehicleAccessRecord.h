@@ -1,7 +1,7 @@
 ﻿// ============================================================================
 // 文件: VehicleAccessRecord.h
 // 职责: 定义车辆出入记录结构体 VehicleAccessRecord，记录一次车辆进出
-//       小区的登记信息，由门禁管理系统维护。
+//       小区的登记信息（含所通过的门禁点），由门禁管理系统维护。
 // ============================================================================
 #pragma once
 
@@ -15,4 +15,5 @@ struct VehicleAccessRecord {
     std::string direction;  ///< 进出方向（Enter/Leave）
     std::string time;       ///< 出入时间
     std::string note;       ///< 备注
+    std::string gateId;     ///< 门禁点编号（关联 AccessPoint.pointId）
 };
