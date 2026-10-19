@@ -1,6 +1,7 @@
 ﻿// ============================================================================
 // 文件: AccessManagementSystem.cpp
-// 职责: 实现门禁管理系统的数据加载/保存、出入登记、车位分配与查询。
+// 职责: 实现门禁管理系统的数据加载/保存、门禁点登记/停用、业主/访客
+//       出入登记、访客签离、车位分配与查询。
 // ============================================================================
 #include "access_system/AccessManagementSystem.h"
 
@@ -27,10 +28,11 @@ std::string nowDateTime() {
 }
 } // namespace
 
-/// 构造函数：绑定业主查询接口，拼接四个数据文件路径并立即加载
+/// 构造函数：绑定业主查询接口，拼接五个数据文件路径并立即加载
 AccessManagementSystem::AccessManagementSystem(
     const IOwnerQuery& owners, std::string dataDirectory)
     : owners_(owners),
+      pointsFile_(dataDirectory + "/access_points.csv"),
       peopleFile_(dataDirectory + "/access_records.csv"),
       vehicleFile_(dataDirectory + "/vehicle_access_records.csv"),
       parkingFile_(dataDirectory + "/parking_records.csv"),
@@ -38,23 +40,41 @@ AccessManagementSystem::AccessManagementSystem(
     load();
 }
 
-/// 从 4 个 CSV 文件加载全部数据
+/// 从 5 个 CSV 文件加载全部数据
 /// 逻辑：分别跳过各文件表头，按固定字段顺序构造记录：
-///       人员出入 6 列、车辆出入 6 列、车位 5 列、访客档案 8 列。
+///       门禁点 5 列、人员出入 7 列（旧文件 6 列，gateId 留空）、
+///       车辆出入 7 列（旧文件 6 列，gateId 留空）、车位 5 列、
+///       访客档案 9 列（旧文件 8 列，gateId 留空）。
 void AccessManagementSystem::load() {
+    points_.clear();
     people_.clear();
     vehicles_.clear();
     parking_.clear();
     visitors_.clear();
 
     std::string line;
+
+    std::ifstream pointInput(pointsFile_);
+    std::getline(pointInput, line); // 跳过表头
+    while (std::getline(pointInput, line)) {
+        const std::vector<std::string> fields = splitCsv(line);
+        if (fields.size() >= 5) {
+            points_.push_back(
+                {fields[0], fields[1], fields[2], fields[3], fields[4]});
+        }
+    }
+
     std::ifstream peopleInput(peopleFile_);
-    std::getline(peopleInput, line); // 跳过表头
+    std::getline(peopleInput, line);
     while (std::getline(peopleInput, line)) {
         const std::vector<std::string> fields = splitCsv(line);
         if (fields.size() >= 6) {
-            people_.push_back(
-                {fields[0], fields[1], fields[2], fields[3], fields[4], fields[5]});
+            AccessRecord record{fields[0], fields[1], fields[2],
+                                fields[3], fields[4], fields[5]};
+            if (fields.size() >= 7) {
+                record.gateId = fields[6]; // 兼容旧文件：无第 7 列时留空
+            }
+            people_.push_back(record);
         }
     }
 
@@ -63,8 +83,12 @@ void AccessManagementSystem::load() {
     while (std::getline(vehicleInput, line)) {
         const std::vector<std::string> fields = splitCsv(line);
         if (fields.size() >= 6) {
-            vehicles_.push_back(
-                {fields[0], fields[1], fields[2], fields[3], fields[4], fields[5]});
+            VehicleAccessRecord record{fields[0], fields[1], fields[2],
+                                       fields[3], fields[4], fields[5]};
+            if (fields.size() >= 7) {
+                record.gateId = fields[6]; // 兼容旧文件：无第 7 列时留空
+            }
+            vehicles_.push_back(record);
         }
     }
 
@@ -83,46 +107,62 @@ void AccessManagementSystem::load() {
     while (std::getline(visitorInput, line)) {
         const std::vector<std::string> fields = splitCsv(line);
         if (fields.size() >= 8) {
-            visitors_.push_back(
-                {fields[0], fields[1], fields[2], fields[3],
-                 fields[4], fields[5], fields[6], fields[7]});
+            Visitor visitor{fields[0], fields[1], fields[2], fields[3],
+                            fields[4], fields[5], fields[6], fields[7]};
+            if (fields.size() >= 9) {
+                visitor.gateId = fields[8]; // 兼容旧文件：无第 9 列时留空
+            }
+            visitors_.push_back(visitor);
         }
     }
 }
 
-/// 将内存中的全部数据写回 4 个 CSV 文件
+/// 将内存中的全部数据写回 5 个 CSV 文件
 /// 逻辑：先确保目录存在，再分别写入表头与数据行（字段统一转义）。
 bool AccessManagementSystem::save() const {
-    if (!ensureParentDirectory(peopleFile_)) {
+    if (!ensureParentDirectory(pointsFile_)) {
         return false;
     }
 
+    std::ofstream pointOutput(pointsFile_);
     std::ofstream peopleOutput(peopleFile_);
     std::ofstream vehicleOutput(vehicleFile_);
     std::ofstream parkingOutput(parkingFile_);
     std::ofstream visitorOutput(visitorFile_);
-    if (!peopleOutput || !vehicleOutput || !parkingOutput || !visitorOutput) {
+    if (!pointOutput || !peopleOutput || !vehicleOutput || !parkingOutput ||
+        !visitorOutput) {
         return false;
     }
 
-    peopleOutput << "id,personId,personType,direction,time,note\n";
+    pointOutput << "pointId,name,type,location,status\n";
+    for (const AccessPoint& point : points_) {
+        pointOutput << csvSafe(point.pointId) << ','
+                    << csvSafe(point.name) << ','
+                    << csvSafe(point.type) << ','
+                    << csvSafe(point.location) << ','
+                    << csvSafe(point.status) << '\n';
+    }
+
+    peopleOutput << "id,personId,personType,direction,time,note,gateId\n";
     for (const AccessRecord& record : people_) {
         peopleOutput << csvSafe(record.id) << ','
                      << csvSafe(record.personId) << ','
                      << csvSafe(record.personType) << ','
                      << csvSafe(record.direction) << ','
                      << csvSafe(record.time) << ','
-                     << csvSafe(record.note) << '\n';
+                     << csvSafe(record.note) << ','
+                     << csvSafe(record.gateId) << '\n';
     }
 
-    vehicleOutput << "id,plateNumber,ownerId,direction,time,note\n";
+    vehicleOutput << "id,plateNumber,ownerId,direction,time,note,gateId\n";
     for (const VehicleAccessRecord& record : vehicles_) {
         vehicleOutput << csvSafe(record.id) << ','
                       << csvSafe(record.plateNumber) << ','
                       << csvSafe(record.ownerId) << ','
                       << csvSafe(record.direction) << ','
                       << csvSafe(record.time) << ','
-                      << csvSafe(record.note) << '\n';
+                      << csvSafe(record.note) << ','
+                      << csvSafe(record.gateId) << '\n';
     }
 
     parkingOutput << "spaceId,plateNumber,ownerId,status,registeredAt\n";
@@ -135,7 +175,7 @@ bool AccessManagementSystem::save() const {
     }
 
     visitorOutput << "visitorId,name,phone,hostOwnerId,reason,"
-                     "enterTime,leaveTime,status\n";
+                     "enterTime,leaveTime,status,gateId\n";
     for (const Visitor& visitor : visitors_) {
         visitorOutput << csvSafe(visitor.visitorId) << ','
                       << csvSafe(visitor.name) << ','
@@ -144,24 +184,74 @@ bool AccessManagementSystem::save() const {
                       << csvSafe(visitor.reason) << ','
                       << csvSafe(visitor.enterTime) << ','
                       << csvSafe(visitor.leaveTime) << ','
-                      << csvSafe(visitor.status) << '\n';
+                      << csvSafe(visitor.status) << ','
+                      << csvSafe(visitor.gateId) << '\n';
     }
 
     return true;
 }
 
+/// 查找编号匹配且处于启用状态的门禁点
+const AccessPoint* AccessManagementSystem::findEnabledPoint(
+    const std::string& pointId) const {
+    for (const AccessPoint& point : points_) {
+        if (point.pointId == pointId && point.status == "Enabled") {
+            return &point;
+        }
+    }
+    return nullptr;
+}
+
+/// 登记一个门禁点
+/// 校验：编号/名称/类型/位置非空、编号唯一；未指定状态时默认启用。
+bool AccessManagementSystem::addAccessPoint(const AccessPoint& point) {
+    const bool duplicate = std::any_of(
+        points_.begin(), points_.end(), [&](const AccessPoint& current) {
+            return current.pointId == point.pointId;
+        });
+    if (point.pointId.empty() || point.name.empty() || point.type.empty() ||
+        point.location.empty() || duplicate) {
+        return false;
+    }
+
+    AccessPoint newPoint = point;
+    if (newPoint.status.empty()) {
+        newPoint.status = "Enabled"; // 未指定状态时默认启用
+    }
+    points_.push_back(newPoint);
+    return save();
+}
+
+/// 停用门禁点：仅停用启用中的门禁点，不删除以保留历史追溯
+bool AccessManagementSystem::disableAccessPoint(const std::string& pointId) {
+    for (AccessPoint& point : points_) {
+        if (point.pointId == pointId && point.status == "Enabled") {
+            point.status = "Disabled";
+            return save();
+        }
+    }
+    return false; // 门禁点不存在或已停用
+}
+
+/// 获取全部门禁点（只读引用，避免拷贝）
+const std::vector<AccessPoint>& AccessManagementSystem::accessPoints() const {
+    return points_;
+}
+
 /// 登记一次业主出入
-/// 校验：编号/人员编号/方向/时间非空、personType=Owner、记录编号唯一、
-///       关联业主必须存在于业主系统；通过后追加并落盘。
+/// 校验：编号/人员编号/方向/时间/门禁点非空、personType=Owner、
+///       记录编号唯一、关联业主存在、门禁点存在且启用；通过后落盘。
 bool AccessManagementSystem::registerPerson(const AccessRecord& record) {
     const bool duplicate = std::any_of(
         people_.begin(), people_.end(), [&](const AccessRecord& current) {
             return current.id == record.id;
         });
     const bool ownerExists = owners_.findOwnerById(record.personId).has_value();
+    const AccessPoint* point = findEnabledPoint(record.gateId);
     if (record.id.empty() || record.personId.empty() ||
         record.personType != "Owner" || record.direction.empty() ||
-        record.time.empty() || duplicate || !ownerExists) {
+        record.time.empty() || record.gateId.empty() || duplicate ||
+        !ownerExists || point == nullptr) {
         return false;
     }
 
@@ -200,13 +290,18 @@ std::string AccessManagementSystem::generateVisitorId() const {
 }
 
 /// 登记访客到访（registerPerson 重载）
-/// 逻辑：校验姓名/被访业主非空且被访业主存在；自动生成编号、进入时间，
-///       置为 Visiting；保存访客档案，并同步写入一条 Enter 流水后落盘。
+/// 逻辑：校验姓名/被访业主/门禁点非空、被访业主存在、门禁点有效；
+///       自动生成编号、进入时间，置为 Visiting；保存访客档案，并同步
+///       写入一条 Enter 流水（继承门禁点）后落盘。
 bool AccessManagementSystem::registerPerson(const Visitor& input) {
-    if (input.name.empty() || input.hostOwnerId.empty()) {
+    if (input.name.empty() || input.hostOwnerId.empty() ||
+        input.gateId.empty()) {
         return false;
     }
     if (!owners_.findOwnerById(input.hostOwnerId).has_value()) {
+        return false;
+    }
+    if (findEnabledPoint(input.gateId) == nullptr) {
         return false;
     }
 
@@ -223,6 +318,7 @@ bool AccessManagementSystem::registerPerson(const Visitor& input) {
     enterRecord.direction = "Enter";
     enterRecord.time = visitor.enterTime;
     enterRecord.note = visitor.reason;
+    enterRecord.gateId = visitor.gateId;
 
     visitors_.push_back(visitor);
     people_.push_back(enterRecord);
@@ -230,9 +326,15 @@ bool AccessManagementSystem::registerPerson(const Visitor& input) {
 }
 
 /// 访客签离
-/// 逻辑：找到状态为 Visiting 的访客，置为 Left、写签离时间，
-///       同步写入一条 Leave 流水后落盘；档案保留不删除。
-bool AccessManagementSystem::visitorCheckout(const std::string& visitorId) {
+/// 逻辑：校验签离门禁点有效；找到状态为 Visiting 的访客，置为 Left、
+///       写签离时间，同步写入一条 Leave 流水（使用签离门禁点）后落盘；
+///       档案保留不删除。
+bool AccessManagementSystem::visitorCheckout(const std::string& visitorId,
+                                             const std::string& gateId) {
+    if (findEnabledPoint(gateId) == nullptr) {
+        return false; // 签离门禁点不存在或已停用
+    }
+
     for (Visitor& visitor : visitors_) {
         if (visitor.visitorId == visitorId &&
             visitor.status == "Visiting") {
@@ -246,16 +348,18 @@ bool AccessManagementSystem::visitorCheckout(const std::string& visitorId) {
             leaveRecord.direction = "Leave";
             leaveRecord.time = visitor.leaveTime;
             leaveRecord.note = visitor.reason;
+            leaveRecord.gateId = gateId;
             people_.push_back(leaveRecord);
             return save();
         }
     }
-    return false;
+    return false; // 访客不存在或已签离
 }
 
 /// 登记一次车辆出入
-/// 校验：编号/车牌/业主编号/方向/时间非空、记录编号唯一、
-///       关联业主必须存在；通过后追加并落盘。
+/// 校验：编号/车牌/业主编号/方向/时间/门禁点非空、记录编号唯一、
+///       关联业主存在、门禁点有效，且该门禁点允许车辆通行
+///       （车库大门/小区大门可走，楼栋门禁止车辆）；通过后落盘。
 bool AccessManagementSystem::registerVehicle(
     const VehicleAccessRecord& record) {
     const bool duplicate = std::any_of(
@@ -264,8 +368,13 @@ bool AccessManagementSystem::registerVehicle(
             return current.id == record.id;
         });
     const bool ownerExists = owners_.findOwnerById(record.ownerId).has_value();
+    const AccessPoint* point = findEnabledPoint(record.gateId);
+    // 车辆只能通行车库大门/小区大门，楼栋门禁止车辆通行
+    const bool vehicleAllowed = point != nullptr &&
+        (point->type == "GarageGate" || point->type == "CommunityGate");
     if (record.id.empty() || record.plateNumber.empty() || record.ownerId.empty() ||
-        record.direction.empty() || record.time.empty() || duplicate || !ownerExists) {
+        record.direction.empty() || record.time.empty() || record.gateId.empty() ||
+        duplicate || !ownerExists || point == nullptr || !vehicleAllowed) {
         return false;
     }
 
