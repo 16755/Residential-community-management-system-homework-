@@ -8,13 +8,20 @@
 #include <algorithm>
 #include <ctime>
 #include <fstream>
+#include <iomanip>
+#include <sstream>
 #include <utility>
 
 #include "common/CsvUtils.h"
 
 namespace {
-/// 取当前系统时间，格式 "YYYY.MM.DD HH:MM:SS"
-std::string nowDateTime() {
+struct DateTimeStamp {
+    std::string display; ///< YYYY.MM.DD HH:MM:SS
+    std::string compact; ///< YYYYMMDDHHMMSS
+};
+
+/// 一次取时，同时生成显示时间与编号时间，避免跨秒不一致
+DateTimeStamp currentDateTime() {
     std::time_t now = std::time(nullptr);
     std::tm local{};
 #ifdef _WIN32
@@ -22,9 +29,29 @@ std::string nowDateTime() {
 #else
     localtime_r(&now, &local);
 #endif
-    char buffer[32];
-    std::strftime(buffer, sizeof(buffer), "%Y.%m.%d %H:%M:%S", &local);
-    return buffer;
+    char displayBuffer[32];
+    char compactBuffer[20];
+    std::strftime(displayBuffer, sizeof(displayBuffer),
+                  "%Y.%m.%d %H:%M:%S", &local);
+    std::strftime(compactBuffer, sizeof(compactBuffer), "%Y%m%d%H%M%S",
+                  &local);
+    return {displayBuffer, compactBuffer};
+}
+
+/// 在已有编号中查找可用编号；基础编号冲突时追加 -2、-3……
+template <typename Record, typename IdGetter>
+std::string uniqueId(const std::string& base,
+                     const std::vector<Record>& records,
+                     IdGetter getId) {
+    std::string candidate = base;
+    int suffix = 2;
+    while (std::any_of(records.begin(), records.end(),
+                       [&](const Record& record) {
+                           return getId(record) == candidate;
+                       })) {
+        candidate = base + "-" + std::to_string(suffix++);
+    }
+    return candidate;
 }
 } // namespace
 
@@ -202,24 +229,48 @@ const AccessPoint* AccessManagementSystem::findEnabledPoint(
     return nullptr;
 }
 
-/// 登记一个门禁点
-/// 校验：编号/名称/类型/位置非空、编号唯一；未指定状态时默认启用。
-bool AccessManagementSystem::addAccessPoint(const AccessPoint& point) {
-    const bool duplicate = std::any_of(
-        points_.begin(), points_.end(), [&](const AccessPoint& current) {
-            return current.pointId == point.pointId;
-        });
-    if (point.pointId.empty() || point.name.empty() || point.type.empty() ||
-        point.location.empty() || duplicate) {
-        return false;
+/// 扫描规范编号 APxxxx，生成最大流水号的下一号
+std::string AccessManagementSystem::generateAccessPointId() const {
+    unsigned long maxSequence = 0;
+    for (const AccessPoint& point : points_) {
+        if (point.pointId.rfind("AP", 0) != 0 || point.pointId.size() <= 2) {
+            continue;
+        }
+        try {
+            std::size_t parsed = 0;
+            const unsigned long sequence =
+                std::stoul(point.pointId.substr(2), &parsed);
+            if (parsed == point.pointId.size() - 2) {
+                maxSequence = std::max(maxSequence, sequence);
+            }
+        } catch (...) {
+            // 非规范历史编号不参与流水号计算
+        }
+    }
+
+    std::ostringstream output;
+    output << "AP" << std::setw(4) << std::setfill('0') << maxSequence + 1;
+    return output.str();
+}
+
+/// 登记门禁点：编号由系统生成；未指定状态时默认启用。
+std::optional<std::string> AccessManagementSystem::addAccessPoint(
+    const AccessPoint& point) {
+    if (point.name.empty() || point.type.empty() || point.location.empty()) {
+        return std::nullopt;
     }
 
     AccessPoint newPoint = point;
+    newPoint.pointId = generateAccessPointId();
     if (newPoint.status.empty()) {
         newPoint.status = "Enabled"; // 未指定状态时默认启用
     }
     points_.push_back(newPoint);
-    return save();
+    if (!save()) {
+        points_.pop_back();
+        return std::nullopt;
+    }
+    return newPoint.pointId;
 }
 
 /// 停用门禁点：仅停用启用中的门禁点，不删除以保留历史追溯
@@ -238,25 +289,31 @@ const std::vector<AccessPoint>& AccessManagementSystem::accessPoints() const {
     return points_;
 }
 
-/// 登记一次业主出入
-/// 校验：编号/人员编号/方向/时间/门禁点非空、personType=Owner、
-///       记录编号唯一、关联业主存在、门禁点存在且启用；通过后落盘。
-bool AccessManagementSystem::registerPerson(const AccessRecord& record) {
-    const bool duplicate = std::any_of(
-        people_.begin(), people_.end(), [&](const AccessRecord& current) {
-            return current.id == record.id;
-        });
+/// 登记一次业主出入：编号和时间由系统使用同一次取时结果生成。
+std::optional<std::string> AccessManagementSystem::registerPerson(
+    const AccessRecord& record) {
     const bool ownerExists = owners_.findOwnerById(record.personId).has_value();
     const AccessPoint* point = findEnabledPoint(record.gateId);
-    if (record.id.empty() || record.personId.empty() ||
-        record.personType != "Owner" || record.direction.empty() ||
-        record.time.empty() || record.gateId.empty() || duplicate ||
-        !ownerExists || point == nullptr) {
-        return false;
+    if (record.personId.empty() || record.personType != "Owner" ||
+        record.direction.empty() || record.gateId.empty() || !ownerExists ||
+        point == nullptr) {
+        return std::nullopt;
     }
 
-    people_.push_back(record);
-    return save();
+    const DateTimeStamp timestamp = currentDateTime();
+    AccessRecord newRecord = record;
+    newRecord.id = uniqueId(
+        "AR-" + timestamp.compact, people_,
+        [](const AccessRecord& current) -> const std::string& {
+            return current.id;
+        });
+    newRecord.time = timestamp.display;
+    people_.push_back(newRecord);
+    if (!save()) {
+        people_.pop_back();
+        return std::nullopt;
+    }
+    return newRecord.id;
 }
 
 /// 生成访客编号
@@ -307,7 +364,7 @@ bool AccessManagementSystem::registerPerson(const Visitor& input) {
 
     Visitor visitor = input;
     visitor.visitorId = generateVisitorId();
-    visitor.enterTime = nowDateTime();
+    visitor.enterTime = currentDateTime().display;
     visitor.leaveTime.clear();
     visitor.status = "Visiting";
 
@@ -339,7 +396,7 @@ bool AccessManagementSystem::visitorCheckout(const std::string& visitorId,
         if (visitor.visitorId == visitorId &&
             visitor.status == "Visiting") {
             visitor.status = "Left";
-            visitor.leaveTime = nowDateTime();
+            visitor.leaveTime = currentDateTime().display;
 
             AccessRecord leaveRecord;
             leaveRecord.id = visitor.visitorId + "-L";
@@ -356,69 +413,86 @@ bool AccessManagementSystem::visitorCheckout(const std::string& visitorId,
     return false; // 访客不存在或已签离
 }
 
-/// 登记一次车辆出入
-/// 校验：编号/车牌/业主编号/方向/时间/门禁点非空、记录编号唯一、
-///       关联业主存在、门禁点有效，且该门禁点允许车辆通行
-///       （车库大门/小区大门可走，楼栋门禁止车辆）；通过后落盘。
-bool AccessManagementSystem::registerVehicle(
+/// 登记一次车辆出入：编号和时间由系统使用同一次取时结果生成。
+/// 车辆只能通过车库大门或小区大门，楼栋门禁止车辆通行。
+std::optional<std::string> AccessManagementSystem::registerVehicle(
     const VehicleAccessRecord& record) {
-    const bool duplicate = std::any_of(
-        vehicles_.begin(), vehicles_.end(),
-        [&](const VehicleAccessRecord& current) {
-            return current.id == record.id;
-        });
     const bool ownerExists = owners_.findOwnerById(record.ownerId).has_value();
     const AccessPoint* point = findEnabledPoint(record.gateId);
-    // 车辆只能通行车库大门/小区大门，楼栋门禁止车辆通行
     const bool vehicleAllowed = point != nullptr &&
         (point->type == "GarageGate" || point->type == "CommunityGate");
-    if (record.id.empty() || record.plateNumber.empty() || record.ownerId.empty() ||
-        record.direction.empty() || record.time.empty() || record.gateId.empty() ||
-        duplicate || !ownerExists || point == nullptr || !vehicleAllowed) {
-        return false;
+    if (record.plateNumber.empty() || record.ownerId.empty() ||
+        record.direction.empty() || record.gateId.empty() || !ownerExists ||
+        !vehicleAllowed) {
+        return std::nullopt;
     }
 
-    vehicles_.push_back(record);
-    return save();
+    const DateTimeStamp timestamp = currentDateTime();
+    VehicleAccessRecord newRecord = record;
+    newRecord.id = uniqueId(
+        "VR-" + timestamp.compact, vehicles_,
+        [](const VehicleAccessRecord& current) -> const std::string& {
+            return current.id;
+        });
+    newRecord.time = timestamp.display;
+    vehicles_.push_back(newRecord);
+    if (!save()) {
+        vehicles_.pop_back();
+        return std::nullopt;
+    }
+    return newRecord.id;
 }
 
 /// 分配车位
-/// 逻辑：校验业主存在且关键字段非空；车位已被占用（Occupied）则拒绝；
-///       若该车位已有记录则更新其车牌/业主并保持占用，否则新增记录。
-bool AccessManagementSystem::assignParking(const ParkingRecord& record) {
+/// 编号基于车牌生成；同车牌已占用则拒绝，已释放则复用原编号。
+std::optional<std::string> AccessManagementSystem::assignParking(
+    const ParkingRecord& record) {
     const bool ownerExists = owners_.findOwnerById(record.ownerId).has_value();
-    if (record.spaceId.empty() || record.plateNumber.empty() ||
-        record.ownerId.empty() || record.registeredAt.empty() || !ownerExists) {
-        return false;
+    if (record.plateNumber.empty() || record.ownerId.empty() ||
+        record.registeredAt.empty() || !ownerExists) {
+        return std::nullopt;
     }
 
-    // 车位被其他车辆占用时拒绝分配
-    for (const ParkingRecord& current : parking_) {
-        if (current.spaceId == record.spaceId && current.status == "Occupied") {
-            return false;
+    for (ParkingRecord& current : parking_) {
+        if (current.plateNumber != record.plateNumber) {
+            continue;
+        }
+        if (current.status == "Occupied") {
+            return std::nullopt;
+        }
+        if (current.status == "Released") {
+            const ParkingRecord oldRecord = current;
+            current.ownerId = record.ownerId;
+            current.status = "Occupied";
+            current.registeredAt = record.registeredAt;
+            if (!save()) {
+                current = oldRecord;
+                return std::nullopt;
+            }
+            return current.spaceId;
         }
     }
 
     ParkingRecord newRecord = record;
+    newRecord.spaceId = uniqueId(
+        "PK-" + record.plateNumber, parking_,
+        [](const ParkingRecord& current) -> const std::string& {
+            return current.spaceId;
+        });
     newRecord.status = "Occupied";
-    // 车位已登记过（如曾释放）：原地更新，不新增重复记录
-    for (ParkingRecord& current : parking_) {
-        if (current.spaceId == record.spaceId) {
-            current = newRecord;
-            return save();
-        }
-    }
-
     parking_.push_back(newRecord);
-    return save();
+    if (!save()) {
+        parking_.pop_back();
+        return std::nullopt;
+    }
+    return newRecord.spaceId;
 }
 
-/// 释放车位：找到占用中的车位，置为 Released 并清空车牌与业主
+/// 释放车位：置为 Released，保留车牌以便同车牌再次分配时复用编号
 bool AccessManagementSystem::releaseParking(const std::string& spaceId) {
     for (ParkingRecord& record : parking_) {
         if (record.spaceId == spaceId && record.status == "Occupied") {
             record.status = "Released";
-            record.plateNumber.clear();
             record.ownerId.clear();
             return save();
         }

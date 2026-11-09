@@ -6,6 +6,8 @@
 
 #include <algorithm>
 #include <fstream>
+#include <iomanip>
+#include <sstream>
 #include <utility>
 
 #include "common/CsvUtils.h"
@@ -57,22 +59,52 @@ bool OwnerManagementSystem::save() const {
     return true;
 }
 
+/// 扫描规范编号 Oxxxx，生成最大流水号的下一号
+std::string OwnerManagementSystem::generateOwnerId() const {
+    unsigned long maxSequence = 0;
+    for (const Owner& owner : owners_) {
+        const std::string& id = owner.id();
+        if (id.size() <= 1 || id[0] != 'O') {
+            continue;
+        }
+        try {
+            std::size_t parsed = 0;
+            const unsigned long sequence = std::stoul(id.substr(1), &parsed);
+            if (parsed == id.size() - 1) {
+                maxSequence = std::max(maxSequence, sequence);
+            }
+        } catch (...) {
+            // 非规范历史编号不参与流水号计算
+        }
+    }
+
+    std::ostringstream output;
+    output << 'O' << std::setw(4) << std::setfill('0') << maxSequence + 1;
+    return output.str();
+}
+
 /// 新增业主
-/// 校验：编号与账号非空、编号不重复、账号不重复；通过后追加并落盘。
-bool OwnerManagementSystem::addOwner(const Owner& owner) {
-    const bool duplicateId = findOwnerById(owner.id()).has_value();
+/// 校验账号非空且不重复；编号由系统生成，通过后追加并落盘。
+std::optional<std::string> OwnerManagementSystem::addOwner(
+    const Owner& owner) {
     const bool duplicateUsername = std::any_of(
         owners_.begin(), owners_.end(), [&](const Owner& current) {
             return current.username() == owner.username();
         });
 
-    if (owner.id().empty() || owner.username().empty() || duplicateId ||
-        duplicateUsername) {
-        return false;
+    if (owner.username().empty() || duplicateUsername) {
+        return std::nullopt;
     }
 
-    owners_.push_back(owner);
-    return save();
+    const std::string id = generateOwnerId();
+    owners_.emplace_back(id, owner.name(), owner.phone(), owner.building(),
+                         owner.unit(), owner.room(), owner.username(),
+                         owner.password());
+    if (!save()) {
+        owners_.pop_back();
+        return std::nullopt;
+    }
+    return id;
 }
 
 /// 按编号覆盖更新业主信息：找到同编号业主则整体替换并落盘

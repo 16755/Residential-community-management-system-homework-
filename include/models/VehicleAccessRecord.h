@@ -9,7 +9,7 @@
 
 /// 车辆出入记录：一次车辆进出小区的登记
 struct VehicleAccessRecord {
-    std::string id;         ///< 记录编号（业务主键）
+    std::string id;         ///< 自动生成的记录编号（如 VR-20261109153045）
     std::string plateNumber;///< 车牌号
     std::string ownerId;    ///< 关联业主编号
     std::string direction;  ///< 进出方向（Enter/Leave）

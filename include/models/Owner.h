@@ -13,7 +13,7 @@
 ///       自己资料的权限（QueryOwner），并重写 profile() 展示房产档案。
 class Owner final : public User {
 private:
-    std::string ownerId_;  ///< 业主编号（业务主键）
+    std::string ownerId_;  ///< 自动生成的业主编号（如 O0001）
     std::string phone_;    ///< 联系电话
     std::string building_; ///< 楼栋
     std::string unit_;     ///< 单元

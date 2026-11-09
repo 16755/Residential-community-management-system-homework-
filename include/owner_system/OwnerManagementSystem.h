@@ -15,13 +15,16 @@
 /// 业主管理系统（final）
 /// 职责：业主档案的"数据存储层 + 业务校验层"：
 ///       - 启动时从 CSV 加载全部业主，内存中持有容器；
-///       - 提供增/改/删/查与关键字搜索，并校验编号、账号唯一性；
+///       - 提供增/改/删/查与关键字搜索，新增时自动编号并校验账号唯一性；
 ///       - 每次变更成功即落盘到 CSV；
 ///       - 作为 IOwnerQuery 实现，向其他子系统暴露只读查询。
 class OwnerManagementSystem final : public IOwnerQuery {
 private:
     std::vector<Owner> owners_; ///< 内存中的业主列表
     std::string file_;          ///< 业主数据文件路径
+
+    /// 根据现有业主编号生成下一个 Oxxxx 编号
+    std::string generateOwnerId() const;
 
 public:
     /// 构造函数：指定数据文件路径并立即加载全部业主
@@ -31,8 +34,9 @@ public:
     void load();
     /// 将内存中的业主列表全部写回 CSV 文件
     bool save() const;
-    /// 新增业主（校验 编号/账号 非空且均不重复）
-    bool addOwner(const Owner& owner);
+    /// 新增业主（自动生成编号，校验账号非空且不重复）
+    /// 成功返回生成的编号，失败返回 std::nullopt
+    std::optional<std::string> addOwner(const Owner& owner);
     /// 按编号覆盖更新业主信息（不存在则失败）
     bool updateOwner(const Owner& owner);
     /// 按编号删除业主（不存在则失败）
