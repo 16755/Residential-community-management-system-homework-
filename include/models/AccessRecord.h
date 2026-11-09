@@ -9,7 +9,7 @@
 
 /// 人员出入记录：一次人员进出小区的登记
 struct AccessRecord {
-    std::string id;         ///< 记录编号（业务主键）
+    std::string id;         ///< 自动生成的记录编号（如 AR-20261109153045）
     std::string personId;   ///< 人员编号（业主编号或访客编号）
     std::string personType; ///< 人员类型（如 Owner/Visitor）
     std::string direction;  ///< 进出方向（Enter/Leave）

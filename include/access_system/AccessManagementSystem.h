@@ -7,6 +7,7 @@
 // ============================================================================
 #pragma once
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -20,12 +21,12 @@
 /// 门禁管理系统
 /// 职责：小区门禁域的"数据存储层 + 业务校验层"：
 ///       - 加载/保存 5 个 CSV（门禁点、人员出入、车辆出入、车位、访客档案）；
-///       - 登记门禁点时校验编号不重复，可停用而不删除；
-///       - 登记业主出入记录时校验业主存在、记录编号不重复、门禁点有效；
+///       - 登记门禁点时自动生成编号，可停用而不删除；
+///       - 登记业主出入记录时自动生成编号和时间，并校验业主与门禁点；
 ///       - 登记访客到访时自动生成访客编号、建档并写入 Enter 流水（含门禁点）；
 ///       - 访客签离时更新档案状态并写入 Leave 流水（档案保留）；
 ///       - 车辆出入还需校验门禁点允许车辆通行；
-///       - 分配/释放车位维护车位状态（Occupied/Released）；
+///       - 按车牌生成车位编号，分配/释放时维护占用状态；
 ///       - 对外提供按人员、按车辆、在访访客、门禁点的查询能力。
 class AccessManagementSystem {
 private:
@@ -43,6 +44,8 @@ private:
 
     /// 查找编号匹配且处于启用状态的门禁点（不存在返回 nullptr）
     const AccessPoint* findEnabledPoint(const std::string& pointId) const;
+    /// 根据现有门禁点编号生成下一个 APxxxx 编号
+    std::string generateAccessPointId() const;
     /// 按当前日期生成唯一访客编号（YYYY.MM.DD-visitor，同日重复追加序号）
     std::string generateVisitorId() const;
 
@@ -56,15 +59,15 @@ public:
     /// 将内存中的全部数据写回 5 个 CSV 文件
     bool save() const;
 
-    /// 登记一个门禁点（校验编号非空且唯一）
-    bool addAccessPoint(const AccessPoint& point);
+    /// 登记门禁点并自动生成编号；成功返回编号，失败返回 std::nullopt
+    std::optional<std::string> addAccessPoint(const AccessPoint& point);
     /// 停用门禁点（置为 Disabled，保留记录以便历史追溯）
     bool disableAccessPoint(const std::string& pointId);
     /// 获取全部门禁点（只读引用，避免拷贝）
     const std::vector<AccessPoint>& accessPoints() const;
 
-    /// 登记一次业主出入（仅接受 personType=Owner，校验业主存在、门禁点有效）
-    bool registerPerson(const AccessRecord& record);
+    /// 登记一次业主出入，自动生成编号和时间；成功返回编号
+    std::optional<std::string> registerPerson(const AccessRecord& record);
     /// 登记访客到访：自动编号、建档（Visiting）并写入一条 Enter 流水
     /// 调用方只需填写 name/phone/hostOwnerId/reason/gateId，其余由系统生成
     bool registerPerson(const Visitor& visitor);
@@ -72,11 +75,12 @@ public:
     /// 签离时间自动取系统时间；gateId 为签离门禁点；档案保留不删除
     bool visitorCheckout(const std::string& visitorId,
                          const std::string& gateId);
-    /// 登记一次车辆出入（校验门禁点有效且允许车辆通行）
-    bool registerVehicle(const VehicleAccessRecord& record);
-    /// 分配车位（车位已被占用时拒绝；已登记的车位则更新车牌/业主信息）
-    bool assignParking(const ParkingRecord& record);
-    /// 释放车位（将占用车位置为 Released 并清空车牌与业主）
+    /// 登记一次车辆出入，自动生成编号和时间；成功返回编号
+    std::optional<std::string> registerVehicle(
+        const VehicleAccessRecord& record);
+    /// 按车牌自动生成车位编号；成功返回编号
+    std::optional<std::string> assignParking(const ParkingRecord& record);
+    /// 释放车位（置为 Released，保留车牌以便重新分配，清空业主）
     bool releaseParking(const std::string& spaceId);
 
     /// 按人员编号查询全部出入记录

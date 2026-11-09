@@ -169,5 +169,8 @@
     <ClInclude Include="include\property_system\PropertyManagementSystem.h">
       <Filter>include\property_system</Filter>
     </ClInclude>
+    <ClInclude Include="include\models\Visitor.h">
+      <Filter>include\models</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

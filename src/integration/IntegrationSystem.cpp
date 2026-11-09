@@ -253,38 +253,39 @@ void IntegrationSystem::accessMenu() {
         }
 
         if (choice == "1") {
-            // 录入一次人员出入记录（含门禁点）
+            // 录入一次人员出入记录；编号和时间由系统自动生成
             AccessRecord record;
-            record.id = input("记录编号：");
             record.personId = input("人员编号：");
             record.personType = input("人员类型：");
             record.direction = input("方向（Enter/Leave）：");
-            record.time = input("时间：");
             record.note = input("备注：");
             record.gateId = input("门禁点编号：");
-            std::cout << (access_.registerPerson(record) ? "登记成功。\n"
-                                                        : "登记失败。\n");
+            const std::optional<std::string> id =
+                access_.registerPerson(record);
+            std::cout << (id ? "登记成功，编号：" + *id + "\n"
+                             : "登记失败。\n");
         } else if (choice == "2") {
-            // 录入一次车辆出入记录（含门禁点）
+            // 录入一次车辆出入记录；编号和时间由系统自动生成
             VehicleAccessRecord record;
-            record.id = input("记录编号：");
             record.plateNumber = input("车牌号：");
             record.ownerId = input("关联业主编号：");
             record.direction = input("方向（Enter/Leave）：");
-            record.time = input("时间：");
             record.note = input("备注：");
             record.gateId = input("门禁点编号：");
-            std::cout << (access_.registerVehicle(record) ? "登记成功。\n"
-                                                         : "登记失败。\n");
+            const std::optional<std::string> id =
+                access_.registerVehicle(record);
+            std::cout << (id ? "登记成功，编号：" + *id + "\n"
+                             : "登记失败。\n");
         } else if (choice == "3") {
             // 录入车位绑定信息（车牌 + 业主）
             ParkingRecord record;
-            record.spaceId = input("车位编号：");
             record.plateNumber = input("车牌号：");
             record.ownerId = input("关联业主编号：");
             record.registeredAt = input("登记时间：");
-            std::cout << (access_.assignParking(record) ? "分配成功。\n"
-                                                       : "分配失败。\n");
+            const std::optional<std::string> id =
+                access_.assignParking(record);
+            std::cout << (id ? "分配成功，编号：" + *id + "\n"
+                             : "分配失败。\n");
         } else if (choice == "4") {
             // 释放指定车位
             const std::string spaceId = input("车位编号：");
@@ -356,14 +357,15 @@ void IntegrationSystem::accessMenu() {
                           << "，门禁点：" << visitor.gateId << '\n';
             }
         } else if (choice == "11") {
-            // 登记门禁点（类型决定人员/车辆通行规则）
+            // 登记门禁点，编号由系统自动生成
             AccessPoint point;
-            point.pointId = input("门禁点编号：");
             point.name = input("名称：");
             point.type = input("类型（CommunityGate/GarageGate/BuildingGate）：");
             point.location = input("位置描述：");
-            std::cout << (access_.addAccessPoint(point) ? "登记成功。\n"
-                                                        : "登记失败。\n");
+            const std::optional<std::string> id =
+                access_.addAccessPoint(point);
+            std::cout << (id ? "登记成功，编号：" + *id + "\n"
+                             : "登记失败。\n");
         } else if (choice == "12") {
             // 停用门禁点（不删除，保留历史追溯）
             const std::string pointId = input("门禁点编号：");
@@ -409,8 +411,7 @@ void IntegrationSystem::adminMenu() {
         }
 
         if (choice == "1") {
-            // 逐项录入业主信息（房产 + 登录账号），交给业主系统校验并保存
-            const std::string id = input("业主编号：");
+            // 逐项录入业主信息，编号由业主系统自动生成
             const std::string name = input("姓名：");
             const std::string phone = input("电话：");
             const std::string building = input("楼栋：");
@@ -418,10 +419,11 @@ void IntegrationSystem::adminMenu() {
             const std::string room = input("房号：");
             const std::string username = input("账号：");
             const std::string password = input("密码：");
-            const Owner owner(id, name, phone, building, unit, room,
+            const Owner owner("", name, phone, building, unit, room,
                               username, password);
-            std::cout << (owners_.addOwner(owner) ? "添加成功。\n"
-                                                  : "添加失败。\n");
+            const std::optional<std::string> id = owners_.addOwner(owner);
+            std::cout << (id ? "添加成功，编号：" + *id + "\n"
+                             : "添加失败。\n");
         } else if (choice == "2") {
             // 按编号删除业主
             const std::string ownerId = input("业主编号：");

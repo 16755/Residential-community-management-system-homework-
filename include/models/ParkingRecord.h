@@ -9,8 +9,8 @@
 
 /// 车位记录：描述一个车位的占用情况
 struct ParkingRecord {
-    std::string spaceId;      ///< 车位编号（业务主键）
-    std::string plateNumber;  ///< 绑定车牌号（车位释放后清空）
+    std::string spaceId;      ///< 按车牌生成的车位编号（如 PK-京A12345）
+    std::string plateNumber;  ///< 绑定车牌号（释放后保留，以便复用编号）
     std::string ownerId;      ///< 关联业主编号（车位释放后清空）
     std::string status;       ///< 车位状态（Occupied=占用 / Released=已释放）
     std::string registeredAt; ///< 登记时间

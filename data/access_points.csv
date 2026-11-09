@@ -1,0 +1,5 @@
+pointId,name,type,location,status
+AP0001,小区南门,CommunityGate,小区南侧,Enabled
+AP0002,地下车库大门,GarageGate,B1层入口,Enabled
+AP0003,1栋1单元门,BuildingGate,1栋1单元,Enabled
+AP0004,大门,CommunityGate,小区西大门,Enabled
