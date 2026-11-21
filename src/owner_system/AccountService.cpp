@@ -33,22 +33,20 @@ void AccountService::load(const OwnerManagementSystem&) {
         }
 
         if (fields[3] == "Admin") {
-            staff_.push_back(
-                std::make_shared<Admin>(fields[0], fields[1], fields[2]));
-        } else if (fields[3] == "PropertyStaff") {
-            staff_.push_back(std::make_shared<PropertyStaff>(
-                fields[0], fields[1], fields[2]));
-        } else if (fields[3] == "AccessStaff") {
-            staff_.push_back(std::make_shared<AccessStaff>(
-                fields[0], fields[1], fields[2]));
+            staff_.push_back(std::make_shared<Admin>(fields[0], fields[1], fields[2]));
+        } 
+        else if (fields[3] == "PropertyStaff") {
+            staff_.push_back(std::make_shared<PropertyStaff>(fields[0], fields[1], fields[2]));
+        } 
+        else if (fields[3] == "AccessStaff") {
+            staff_.push_back(std::make_shared<AccessStaff>(fields[0], fields[1], fields[2]));
         }
     }
 
     // 兜底：确保始终存在内置管理员账号
-    const bool hasAdmin = std::any_of(
-        staff_.begin(), staff_.end(), [](const std::shared_ptr<User>& user) {
-            return user->username() == "admin";
-        });
+    const bool hasAdmin = std::any_of(staff_.begin(), staff_.end(), 
+        [](const std::shared_ptr<User>& user) {return user->username() == "admin"; });
+
     if (!hasAdmin) {
         staff_.push_back(std::make_shared<Admin>(
             "admin", "admin123", "System Administrator"));
@@ -119,11 +117,9 @@ bool AccountService::addStaff(const std::string& username,
     if (role == Role::Admin) {
         staff_.push_back(std::make_shared<Admin>(username, password, name));
     } else if (role == Role::PropertyStaff) {
-        staff_.push_back(
-            std::make_shared<PropertyStaff>(username, password, name));
+        staff_.push_back(std::make_shared<PropertyStaff>(username, password, name));
     } else {
-        staff_.push_back(
-            std::make_shared<AccessStaff>(username, password, name));
+        staff_.push_back(std::make_shared<AccessStaff>(username, password, name));
     }
     return save();
 }
