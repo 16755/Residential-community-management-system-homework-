@@ -22,12 +22,8 @@ std::string roleToString(Role role) {
 }
 
 /// 构造用户账号：以移动语义接收四个参数，避免字符串拷贝
-User::User(std::string username, std::string password,
-           std::string name, Role role)
-    : username_(std::move(username)),
-      password_(std::move(password)),
-      name_(std::move(name)),
-      role_(role) {}
+User::User(std::string username, std::string password,std::string name, Role role)
+    : username_(std::move(username)),password_(std::move(password)),name_(std::move(name)),role_(role) {}
 
 /// 以下为账号各字段的只读访问器（内联实现，返回 const 引用避免拷贝）
 const std::string& User::username() const { return username_; }

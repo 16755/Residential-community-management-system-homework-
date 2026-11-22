@@ -14,8 +14,7 @@ Owner::Owner() : User("", "", "", Role::Owner) {}
 Owner::Owner(std::string id, std::string name, std::string phone,
              std::string building, std::string unit, std::string room,
              std::string username, std::string password)
-    : User(std::move(username), std::move(password), std::move(name),
-           Role::Owner),
+    : User(std::move(username), std::move(password), std::move(name), Role::Owner),
       ownerId_(std::move(id)),
       phone_(std::move(phone)),
       building_(std::move(building)),

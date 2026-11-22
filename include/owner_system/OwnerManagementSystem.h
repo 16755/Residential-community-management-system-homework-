@@ -39,8 +39,7 @@ public:
     bool removeOwner(const std::string& ownerId);
 
     /// 按编号查找业主（实现 IOwnerQuery 接口）
-    std::optional<Owner> findOwnerById(
-        const std::string& ownerId) const override;
+    std::optional<Owner> findOwnerById(const std::string& ownerId) const override;
     /// 按 编号/姓名/房号 关键字模糊搜索业主
     std::vector<Owner> search(const std::string& keyword) const;
     /// 获取全部业主列表（只读引用，避免拷贝）

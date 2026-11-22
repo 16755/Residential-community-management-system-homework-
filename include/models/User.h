@@ -46,8 +46,7 @@ public:
     /// @param password 登录密码
     /// @param name     真实姓名
     /// @param role     账号角色
-    User(std::string username, std::string password,
-         std::string name, Role role);
+    User(std::string username, std::string password,std::string name, Role role);
     virtual ~User() = default;
 
     /// 获取登录账号名

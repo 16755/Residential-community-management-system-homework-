@@ -11,8 +11,7 @@
 #include "common/CsvUtils.h"
 
 /// 构造函数：指定数据文件路径并立即加载全部业主
-OwnerManagementSystem::OwnerManagementSystem(std::string file)
-    : file_(std::move(file)) {
+OwnerManagementSystem::OwnerManagementSystem(std::string file): file_(std::move(file)) {
     load();
 }
 
@@ -28,8 +27,7 @@ void OwnerManagementSystem::load() {
     while (std::getline(input, line)) {
         const std::vector<std::string> fields = splitCsv(line);
         if (fields.size() >= 8) {
-            owners_.emplace_back(fields[0], fields[1], fields[2], fields[3],
-                                 fields[4], fields[5], fields[6], fields[7]);
+            owners_.emplace_back(fields[0], fields[1], fields[2], fields[3],fields[4], fields[5], fields[6], fields[7]);
         }
     }
 }
@@ -51,8 +49,7 @@ bool OwnerManagementSystem::save() const {
         output << csvSafe(owner.id()) << ',' << csvSafe(owner.name()) << ','
                 << csvSafe(owner.phone()) << ',' << csvSafe(owner.building())
                 << ',' << csvSafe(owner.unit()) << ',' << csvSafe(owner.room())
-                << ',' << csvSafe(owner.username()) << ','
-                << csvSafe(owner.password()) << '\n';
+                << ',' << csvSafe(owner.username()) << ','<< csvSafe(owner.password()) << '\n';
     }
     return true;
 }
@@ -61,8 +58,7 @@ bool OwnerManagementSystem::save() const {
 /// 校验：编号与账号非空、编号不重复、账号不重复；通过后追加并落盘。
 bool OwnerManagementSystem::addOwner(const Owner& owner) {
     const bool duplicateId = findOwnerById(owner.id()).has_value();
-    const bool duplicateUsername = std::any_of(
-        owners_.begin(), owners_.end(), [&](const Owner& current) {
+    const bool duplicateUsername = std::any_of(owners_.begin(), owners_.end(), [&](const Owner& current) {
             return current.username() == owner.username();
         });
 
@@ -88,8 +84,7 @@ bool OwnerManagementSystem::updateOwner(const Owner& owner) {
 
 /// 按编号删除业主：使用 remove_if 移出所有匹配记录
 bool OwnerManagementSystem::removeOwner(const std::string& ownerId) {
-    const auto newEnd = std::remove_if(
-        owners_.begin(), owners_.end(), [&](const Owner& owner) {
+    const auto newEnd = std::remove_if(owners_.begin(), owners_.end(), [&](const Owner& owner) {
             return owner.id() == ownerId;
         });
 
@@ -102,8 +97,7 @@ bool OwnerManagementSystem::removeOwner(const std::string& ownerId) {
 }
 
 /// 按编号查找业主：线性遍历返回第一个匹配项（实现 IOwnerQuery 接口）
-std::optional<Owner> OwnerManagementSystem::findOwnerById(
-    const std::string& ownerId) const {
+std::optional<Owner> OwnerManagementSystem::findOwnerById(const std::string& ownerId) const {
     for (const Owner& owner : owners_) {
         if (owner.id() == ownerId) {
             return owner;
@@ -113,8 +107,7 @@ std::optional<Owner> OwnerManagementSystem::findOwnerById(
 }
 
 /// 关键字模糊搜索：编号、姓名、房号任一包含关键字即命中
-std::vector<Owner> OwnerManagementSystem::search(
-    const std::string& keyword) const {
+std::vector<Owner> OwnerManagementSystem::search(const std::string& keyword) const {
     std::vector<Owner> result;
     for (const Owner& owner : owners_) {
         if (owner.id().find(keyword) != std::string::npos ||
