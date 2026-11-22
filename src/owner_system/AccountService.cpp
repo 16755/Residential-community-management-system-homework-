@@ -48,8 +48,7 @@ void AccountService::load(const OwnerManagementSystem&) {
         [](const std::shared_ptr<User>& user) {return user->username() == "admin"; });
 
     if (!hasAdmin) {
-        staff_.push_back(std::make_shared<Admin>(
-            "admin", "admin123", "System Administrator"));
+        staff_.push_back(std::make_shared<Admin>("admin", "admin123", "System Administrator"));
     }
 }
 
@@ -105,8 +104,8 @@ bool AccountService::authenticate(
 bool AccountService::addStaff(const std::string& username,
                               const std::string& password,
                               const std::string& name, Role role) {
-    const bool duplicate = std::any_of(
-        staff_.begin(), staff_.end(), [&](const std::shared_ptr<User>& user) {
+    const bool duplicate = std::any_of(staff_.begin(), staff_.end(), 
+        [&](const std::shared_ptr<User>& user) {
             return user->username() == username;
         });
     if (username.empty() || password.empty() || role == Role::Owner ||
