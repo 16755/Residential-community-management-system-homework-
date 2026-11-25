@@ -1,11 +1,14 @@
 ﻿// ============================================================================
 // 文件: AccountService.cpp
-// 职责: 实现账号服务的加载/保存、登录认证与工作人员账号新增。
+// 职责: 实现账号服务的加载/保存、登录认证与工作人员账号维护。
 // ============================================================================
 #include "owner_system/AccountService.h"
 
 #include <algorithm>
+#include <atomic>
+#include <filesystem>
 #include <fstream>
+#include <process.h>
 #include <utility>
 
 #include "common/CsvUtils.h"
@@ -56,13 +59,17 @@ void AccountService::load(const OwnerManagementSystem&) {
 }
 
 /// 将工作人员账号列表写回 CSV
-/// 逻辑：写入表头 username,password,name,role 及全部账号行。
+/// 先完整写入同目录的临时文件，再替换原 CSV，避免写入失败时丢失账号数据。
 bool AccountService::save() const {
     if (!ensureParentDirectory(file_)) {
         return false;
     }
 
-    std::ofstream output(file_);
+    static std::atomic<unsigned> saveSequence{0};
+    const std::filesystem::path destination(file_);
+    auto temporary = destination;
+    temporary += "." + std::to_string(_getpid()) + "." + std::to_string(saveSequence++) + ".tmp";
+    std::ofstream output(temporary);
     if (!output) {
         return false;
     }
@@ -73,7 +80,16 @@ bool AccountService::save() const {
                 << csvSafe(user->password()) << ',' << csvSafe(user->name())
                 << ',' << roleToString(user->role()) << '\n';
     }
-    return true;
+    output.close();
+    std::error_code error;
+    if (output) {
+        std::filesystem::rename(temporary, destination, error);
+        if (!error) {
+            return true;
+        }
+    }
+    std::filesystem::remove(temporary, error);
+    return false;
 }
 
 std::vector<StaffProfile> AccountService::staffProfiles() const {
@@ -134,5 +150,38 @@ bool AccountService::addStaff(const std::string& username,
         staff_.push_back(
             std::make_shared<AccessStaff>(username, password, name));
     }
-    return save();
+    if (!save()) {
+        staff_.pop_back();
+        return false;
+    }
+    return true;
+}
+
+StaffRemovalResult AccountService::removeStaff(const std::string& username,
+                                               const User& requester) {
+    if (!requester.hasPermission(Permission::ManageAccounts)) {
+        return StaffRemovalResult::Forbidden;
+    }
+    if (username == "admin" || username == requester.username()) {
+        return StaffRemovalResult::ProtectedAccount;
+    }
+    if (username.empty()) {
+        return StaffRemovalResult::NotFound;
+    }
+
+    auto remaining = staff_;
+    const auto end = std::remove_if(remaining.begin(), remaining.end(), [&](const auto& user) {
+        return user->username() == username;
+    });
+    if (end == remaining.end()) {
+        return StaffRemovalResult::NotFound;
+    }
+    remaining.erase(end, remaining.end());
+
+    staff_.swap(remaining);
+    if (!save()) {
+        staff_.swap(remaining);
+        return StaffRemovalResult::SaveFailed;
+    }
+    return StaffRemovalResult::Removed;
 }

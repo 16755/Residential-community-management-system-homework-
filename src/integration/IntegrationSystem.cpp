@@ -386,7 +386,7 @@ void IntegrationSystem::accessMenu() {
 
 /// 管理员菜单：管理员专属
 /// 权限：仅 Admin 角色可进入
-/// 功能：业主新增/删除/列表、工作人员账号新增，
+/// 功能：业主新增/删除/列表、工作人员账号新增和删除，
 ///       并可一键进入物业与门禁菜单。
 void IntegrationSystem::adminMenu() {
     // 权限校验：仅管理员角色
@@ -403,6 +403,7 @@ void IntegrationSystem::adminMenu() {
                   << "4. 添加工作人员账号\n"
                   << "5. 进入物业管理\n"
                   << "6. 进入门禁管理\n"
+                  << "7. 删除工作人员账号\n"
                   << "0. 返回\n";
         const std::string choice = input("请选择：");
 
@@ -461,6 +462,27 @@ void IntegrationSystem::adminMenu() {
             propertyMenu(); // 管理员代管物业菜单
         } else if (choice == "6") {
             accessMenu();   // 管理员代管门禁菜单
+        } else if (choice == "7") {
+            const std::string username = input("要删除的工作人员账号：");
+            if (!username.empty() && input("确认删除 " + username + "？（y/N）：") == "y") {
+                switch (accounts_.removeStaff(username, *currentUser_)) {
+                    case StaffRemovalResult::Removed:
+                        std::cout << "工作人员账号已删除。\n";
+                        break;
+                    case StaffRemovalResult::Forbidden:
+                        std::cout << "权限不足。\n";
+                        break;
+                    case StaffRemovalResult::ProtectedAccount:
+                        std::cout << "不能删除内置管理员或当前登录的账号。\n";
+                        break;
+                    case StaffRemovalResult::NotFound:
+                        std::cout << "找不到该工作人员账号。\n";
+                        break;
+                    case StaffRemovalResult::SaveFailed:
+                        std::cout << "删除失败：无法保存工作人员账号文件。\n";
+                        break;
+                }
+            }
         } else {
             std::cout << "无效选项。\n";
         }

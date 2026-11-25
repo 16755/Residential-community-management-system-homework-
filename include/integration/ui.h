@@ -65,6 +65,7 @@ private:
     enum class Action {
         Create,
         DeleteOwner,
+        DeleteStaff,
         AssignTask,
         AdvanceTask,
         ReleaseParking,

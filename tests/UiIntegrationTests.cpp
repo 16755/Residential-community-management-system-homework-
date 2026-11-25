@@ -139,6 +139,9 @@ struct CommunityUiTestAccess {
         }
         ui.state_.page = Page::Accounts; ui.submit(Action::Create);
         check(ui.state_.error, "Property staff can create staff");
+        ui.state_.selected = "access";
+        ui.submit(Action::DeleteStaff);
+        check(ui.state_.error, "Property staff can delete staff");
         loginAs("access", "pw");
         check(ui.allowed(Page::Vehicles) && !ui.allowed(Page::Fees), "Access permissions wrong");
         for (int i = 0; i < 9; ++i) {
@@ -187,6 +190,65 @@ struct CommunityUiTestAccess {
         check(std::any_of(duplicateStaff.begin(), duplicateStaff.end(), [](const auto& item) {
             return item.first == "property2" && item.second == "物业人员（property2）";
         }), "Duplicate staff names are ambiguous");
+
+        create(ui, Page::Accounts, {"admin2", "pw", "管理员乙", "Admin"});
+        loginAs("admin2", "pw");
+        ui.changePage(Page::Accounts);
+        ui.state_.selected = "admin2";
+        ui.submit(Action::DeleteStaff);
+        check(ui.state_.error, "Signed-in administrator deleted their own account");
+        ui.state_.selected = "admin";
+        ui.submit(Action::DeleteStaff);
+        check(ui.state_.error, "Built-in administrator account was deleted");
+        ui.state_.selected = "missing-account";
+        ui.submit(Action::DeleteStaff);
+        check(ui.state_.error, "Deleting a missing staff account succeeded");
+
+        ui.state_.selected = "property";
+        frame(ui);
+        const auto accountFile = directory / "accounts.csv";
+        // Deny file replacement to exercise the save failure path and in-memory rollback.
+        const HANDLE lockedFile = CreateFileW(accountFile.c_str(), GENERIC_READ, FILE_SHARE_READ,
+                                              nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        check(lockedFile != INVALID_HANDLE_VALUE, "Could not lock account CSV for failure test");
+        ui.submit(Action::DeleteStaff);
+        CloseHandle(lockedFile);
+        const auto rowsAfterFailedRemoval = ui.rows();
+        check(ui.state_.error && std::any_of(rowsAfterFailedRemoval.begin(), rowsAfterFailedRemoval.end(),
+            [](const auto& row) { return row.key == "property"; }), "Save failure removed staff from memory");
+        AccountService persistedAccounts(accountFile.string());
+        persistedAccounts.load(reloaded);
+        std::shared_ptr<User> account;
+        check(persistedAccounts.authenticate("property", "pw", reloaded, account),
+            "Save failure removed staff from disk");
+        check(persistedAccounts.removeStaff("access", *account) == StaffRemovalResult::Forbidden,
+            "Account service accepted staff removal by a non-admin");
+
+        ui.state_.form[0] = "😀"; // An unrelated draft entry must not prevent deletion.
+        ui.submit(Action::DeleteStaff);
+        success(ui);
+        const auto remainingStaff = ui.rows();
+        check(ui.state_.selected.empty() && std::none_of(remainingStaff.begin(), remainingStaff.end(),
+            [](const auto& row) { return row.key == "property"; }), "Deleted staff remains in account list");
+        ui.changePage(Page::Tasks);
+        check(ui.rows()[0].cells[5] == "未找到工作人员（property）", "Task lost its historical assignee");
+        const auto remainingChoices = ui.staffChoices();
+        check(std::none_of(remainingChoices.begin(), remainingChoices.end(),
+            [](const auto& item) { return item.first == "property"; }), "Deleted staff remains assignable");
+
+        ui.logout();
+        ui.state_.username = "property";
+        ui.state_.password = "pw";
+        check(!ui.login(), "Deleted staff can still sign in");
+        persistedAccounts.load(reloaded);
+        check(!persistedAccounts.authenticate("property", "pw", reloaded, account),
+            "Deleted staff can sign in after reload");
+        check(persistedAccounts.authenticate("property2", "pw", reloaded, account),
+            "Deleting staff removed a different user with the same name");
+        check(persistedAccounts.authenticate("admin", "admin123", reloaded, account),
+            "Built-in administrator cannot sign in after reload");
+        check(persistedAccounts.authenticate("admin2", "pw", reloaded, account),
+            "Protected administrator cannot sign in after reload");
         ui.logout(); frame(ui);
     }
 };

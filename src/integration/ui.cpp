@@ -777,6 +777,9 @@ void CommunityUI::submit(Action action) {
         case Action::DeleteOwner:
             requiredPage = Page::Owners;
             break;
+        case Action::DeleteStaff:
+            requiredPage = Page::Accounts;
+            break;
         case Action::AssignTask:
         case Action::AdvanceTask:
             requiredPage = Page::Tasks;
@@ -801,9 +804,12 @@ void CommunityUI::submit(Action action) {
 
     try {
         // 2. 将 UTF-8 界面输入转换为业务编码，不直接修改原表单。
-        std::array<std::string, 8> businessFields;
-        for (std::size_t index = 0; index < businessFields.size(); ++index) {
-            businessFields[index] = toBusiness(state_.form[index]);
+        std::array<std::string, 8> businessFields{};
+        if (action == Action::Create || action == Action::AssignTask ||
+            action == Action::CheckoutVisitor) {
+            for (std::size_t index = 0; index < businessFields.size(); ++index) {
+                businessFields[index] = toBusiness(state_.form[index]);
+            }
         }
         const std::string selectedId = toBusiness(state_.selected);
         if (action != Action::Create && selectedId.empty()) {
@@ -820,6 +826,25 @@ void CommunityUI::submit(Action action) {
                 break;
             case Action::DeleteOwner:
                 success = system_.owners_.removeOwner(selectedId);
+                break;
+            case Action::DeleteStaff:
+                switch (system_.accounts_.removeStaff(selectedId, *system_.currentUser_)) {
+                    case StaffRemovalResult::Removed:
+                        success = true;
+                        break;
+                    case StaffRemovalResult::Forbidden:
+                        notify(false, "当前账号无权删除工作人员。");
+                        return;
+                    case StaffRemovalResult::ProtectedAccount:
+                        notify(false, "不能删除内置管理员或当前登录的账号。");
+                        return;
+                    case StaffRemovalResult::NotFound:
+                        notify(false, "找不到所选工作人员账号。");
+                        return;
+                    case StaffRemovalResult::SaveFailed:
+                        notify(false, "删除失败：无法保存工作人员账号文件。");
+                        return;
+                }
                 break;
             case Action::AssignTask: {
                 const auto& assigneeAccount = businessFields[5];
@@ -894,7 +919,7 @@ void CommunityUI::submit(Action action) {
             if (generatedId.has_value()) {
                 state_.selected = toUtf8(*generatedId);
             }
-        } else if (action == Action::DeleteOwner) {
+        } else if (action == Action::DeleteOwner || action == Action::DeleteStaff) {
             state_.selected.clear();
         }
     } catch (const std::invalid_argument&) {
@@ -1324,17 +1349,21 @@ void CommunityUI::renderSelectedActions() {
     if (!state_.selected.empty()) {
         ImGui::Separator();
         ImGui::TextWrapped("已选择：%s", state_.selected.c_str());
-        if (state_.page == Page::Owners || state_.page == Page::Points) {
+        if (state_.page == Page::Owners || state_.page == Page::Points ||
+            state_.page == Page::Accounts) {
             const char* label = "删除所选业主";
             Action confirmAction = Action::DeleteOwner;
             if (state_.page == Page::Points) {
                 label = "停用所选门禁点";
                 confirmAction = Action::DisablePoint;
+            } else if (state_.page == Page::Accounts) {
+                label = "删除所选工作人员";
+                confirmAction = Action::DeleteStaff;
             }
             if (actionButton(label)) {
                 ImGui::OpenPopup("确认操作");
             }
-            // 模态确认弹窗：删除业主或停用门禁点前显示目标编号，确认后才提交。
+            // 模态确认弹窗：显示所选记录的编号或账号，确认后才提交。
             if (ImGui::BeginPopupModal("确认操作", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
                 ImGui::Text("确认%s？", label);
                 ImGui::TextUnformatted(state_.selected.c_str());

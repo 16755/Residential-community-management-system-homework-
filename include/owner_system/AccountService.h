@@ -1,7 +1,7 @@
 ﻿// ============================================================================
 // 文件: AccountService.h
 // 职责: 账号服务。管理工作人员账号（管理员/物业/门禁）的加载、保存、
-//       登录认证与新增；业主账号由 OwnerManagementSystem 存储，
+//       登录认证、新增与删除；业主账号由 OwnerManagementSystem 存储，
 //       认证时本服务会连同业主账号一并校验。
 // ============================================================================
 #pragma once
@@ -20,12 +20,20 @@ struct StaffProfile {
     Role role;
 };
 
+enum class StaffRemovalResult {
+    Removed,
+    Forbidden,
+    ProtectedAccount,
+    NotFound,
+    SaveFailed
+};
+
 /// 账号服务类
 /// 职责：工作人员账号的存储层 + 全系统唯一的登录认证入口：
 ///       - 从 data/accounts.csv 加载工作人员账号（内存容器持有 shared_ptr<User>）；
 ///       - authenticate() 依次在业主列表与工作人员列表中校验用户名/密码，
 ///         成功时返回对应的 User 对象；
-///       - addStaff() 供管理员新增工作人员账号并落盘。
+///       - addStaff() 和 removeStaff() 用于维护工作人员账号。
 class AccountService {
 private:
     std::vector<std::shared_ptr<User>> staff_; ///< 内存中的工作人员账号列表
@@ -56,4 +64,6 @@ public:
                   const std::string& password,
                   const std::string& name,
                   Role role);
+    /// 按账号删除工作人员；内置 admin 和当前操作者的账号受保护。
+    StaffRemovalResult removeStaff(const std::string& username, const User& requester);
 };
