@@ -59,7 +59,8 @@ private:
         Parking,
         Visitors,
         Points,
-        Accounts
+        Accounts,
+        Repairs
     };
     // 操作面板按钮统一分发到 submit，集中检查权限并调用业务接口。
     enum class Action {
@@ -68,6 +69,8 @@ private:
         DeleteStaff,
         AssignTask,
         AdvanceTask,
+        FinishRepair,
+        ConfirmRepair,
         ReleaseParking,
         CheckoutVisitor,
         DisablePoint
@@ -122,11 +125,15 @@ private:
     void renderSelectedDetails();
     bool renderCreateForm(); // 返回当前表单是否允许点击“提交新增”。
     void renderSelectedActions();
+    void renderWorkOrderActions();
     // 建立默认三栏停靠布局；用户主动恢复时也调用此函数。
     void buildLayout(ImGuiID dockId);
     // 表格数据与各表单下拉选项的准备函数。
     std::vector<const char*> tableColumns() const;
     std::vector<Row> rows() const;
+    const char* pageName(Page page) const;
+    const Owner* currentOwner() const;
+    std::vector<PropertyTask> workOrders() const;
     std::string ownId() const;
     bool ownerCombo(const char* label, std::string& selected);
     bool gateCombo(const char* label, std::string& selected, bool vehicle = false);

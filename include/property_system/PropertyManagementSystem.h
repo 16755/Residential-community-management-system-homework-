@@ -21,8 +21,7 @@
 ///       - 收费项目为空时初始化 5 个内置默认项目；
 ///       - 缴费记录校验业主存在、金额合法（0 <= paid <= due）；
 ///       - 欠费统计 = 各记录 (应缴 - 实缴) 的累计；
-///       - 任务状态只能按 Unassigned->Assigned->InProgress->Completed
-///         顺序逐级流转（updateTaskStatus 校验相邻步进）。
+///       - 任务按顺序流转；业主报修须记录处理结果并由提交人确认完成。
 class PropertyManagementSystem {
 private:
     const IOwnerQuery& owners_;  ///< 业主查询接口（校验业主存在性）
@@ -32,6 +31,13 @@ private:
     std::string itemFile_; ///< 收费项目文件路径
     std::string feeFile_;  ///< 缴费记录文件路径
     std::string taskFile_; ///< 物业任务文件路径
+
+    bool saveBilling() const;
+    bool saveTasks() const;
+    PropertyTask* findTask(const std::string& taskId);
+    bool appendTask(const PropertyTask& task);
+    bool storeTaskUpdate(PropertyTask& task, PropertyTask updated);
+    bool isCurrentOwner(const Owner& owner) const;
 
 public:
     /// 构造函数：绑定业主查询接口与数据目录，并立即加载全部数据
@@ -64,6 +70,14 @@ public:
     /// 查询任务列表（可按状态过滤，缺省返回全部）
     std::vector<PropertyTask> queryTasks(
         std::optional<TaskStatus> status = std::nullopt) const;
+
+    /// 业主报修使用已认证的业主身份，编号及提交时间由系统生成。
+    std::optional<std::string> submitRepair(const Owner& reporter,
+                                            const std::string& title,
+                                            const std::string& description);
+    std::vector<PropertyTask> queryRepairs(const Owner& reporter) const;
+    bool finishRepair(const std::string& taskId, const std::string& note);
+    bool confirmRepair(const std::string& taskId, const Owner& reporter);
 
     /// 获取全部收费项目（只读引用，避免拷贝）
     const std::vector<FeeItem>& feeItems() const;

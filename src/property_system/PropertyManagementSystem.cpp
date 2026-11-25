@@ -5,10 +5,43 @@
 #include "property_system/PropertyManagementSystem.h"
 
 #include <algorithm>
+#include <atomic>
+#include <ctime>
+#include <filesystem>
 #include <fstream>
+#include <iterator>
+#include <process.h>
 #include <utility>
 
 #include "common/CsvUtils.h"
+
+namespace {
+bool hasText(const std::string& text) {
+    return text.find_first_not_of(" \t\r\n\v\f") != std::string::npos;
+}
+
+bool reportedBy(const PropertyTask& task, const Owner& reporter) {
+    return task.isRepair() && task.reporterOwnerId == reporter.id() &&
+           task.reporterUsername == reporter.username();
+}
+
+// Task descriptions and resolution notes can span multiple physical CSV lines.
+bool readTaskRow(std::istream& input, std::string& row) {
+    if (!std::getline(input, row)) {
+        return false;
+    }
+    bool quoted = std::count(row.begin(), row.end(), '"') % 2 != 0;
+    std::string line;
+    while (quoted && std::getline(input, line)) {
+        row += '\n';
+        row += line;
+        if (std::count(line.begin(), line.end(), '"') % 2 != 0) {
+            quoted = !quoted;
+        }
+    }
+    return !quoted;
+}
+} // namespace
 
 /// 构造函数：绑定业主查询接口，拼接三个数据文件路径并立即加载
 PropertyManagementSystem::PropertyManagementSystem(
@@ -73,27 +106,34 @@ void PropertyManagementSystem::load() {
 
     std::ifstream taskInput(taskFile_);
     std::getline(taskInput, line);
-    while (std::getline(taskInput, line)) {
+    while (readTaskRow(taskInput, line)) {
         const std::vector<std::string> fields = splitCsv(line);
         TaskStatus status;
         if (fields.size() >= 8 && parseTaskStatus(fields[6], status)) {
-            tasks_.push_back({fields[0], fields[1], fields[2], fields[3],
-                              fields[4], fields[5], fields[7], status});
+            PropertyTask task{fields[0], fields[1], fields[2], fields[3],
+                              fields[4], fields[5], fields[7], status};
+            if (fields.size() >= 10) {
+                task.reporterOwnerId = fields[8];
+                task.reporterUsername = fields[9];
+            }
+            tasks_.push_back(std::move(task));
         }
     }
 }
 
 /// 将内存中的全部数据写回 3 个 CSV 文件
-/// 逻辑：先确保目录存在，再分别写入表头与数据行（字段统一转义）。
 bool PropertyManagementSystem::save() const {
+    return saveBilling() && saveTasks();
+}
+
+bool PropertyManagementSystem::saveBilling() const {
     if (!ensureParentDirectory(itemFile_)) {
         return false;
     }
 
     std::ofstream itemOutput(itemFile_);
     std::ofstream feeOutput(feeFile_);
-    std::ofstream taskOutput(taskFile_);
-    if (!itemOutput || !feeOutput || !taskOutput) {
+    if (!itemOutput || !feeOutput) {
         return false;
     }
 
@@ -111,16 +151,46 @@ bool PropertyManagementSystem::save() const {
                   << ',' << csvSafe(fee.paymentDate) << '\n';
     }
 
-    taskOutput << "id,title,description,type,created,assignee,status,note\n";
+    itemOutput.close();
+    feeOutput.close();
+    return itemOutput && feeOutput;
+}
+
+bool PropertyManagementSystem::saveTasks() const {
+    if (!ensureParentDirectory(taskFile_)) {
+        return false;
+    }
+
+    // Write the complete work-order file before replacing the existing history.
+    static std::atomic<unsigned> saveSequence{0};
+    const std::filesystem::path destination(taskFile_);
+    auto temporary = destination;
+    temporary += "." + std::to_string(_getpid()) + "." + std::to_string(saveSequence++) + ".tmp";
+    std::ofstream taskOutput(temporary);
+    if (!taskOutput) {
+        return false;
+    }
+    taskOutput << "id,title,description,type,created,assignee,status,note,reporter_owner_id,reporter_username\n";
     for (const PropertyTask& task : tasks_) {
         taskOutput << csvSafe(task.id) << ',' << csvSafe(task.title) << ','
                    << csvSafe(task.description) << ',' << csvSafe(task.type)
                    << ',' << csvSafe(task.createdAt) << ','
                    << csvSafe(task.assignee) << ','
                    << taskStatusToString(task.status) << ','
-                   << csvSafe(task.completionNote) << '\n';
+                   << csvSafe(task.completionNote) << ','
+                   << csvSafe(task.reporterOwnerId) << ','
+                   << csvSafe(task.reporterUsername) << '\n';
     }
-    return true;
+    taskOutput.close();
+    std::error_code error;
+    if (taskOutput) {
+        std::filesystem::rename(temporary, destination, error);
+        if (!error) {
+            return true;
+        }
+    }
+    std::filesystem::remove(temporary, error);
+    return false;
 }
 
 /// 新增收费项目：校验编号非空、金额非负、编号唯一，通过后追加并落盘
@@ -133,7 +203,7 @@ bool PropertyManagementSystem::addFeeItem(const FeeItem& item) {
         return false;
     }
     items_.push_back(item);
-    return save();
+    return saveBilling();
 }
 
 /// 按编号覆盖更新收费项目：找到同编号项目则整体替换并落盘
@@ -141,7 +211,7 @@ bool PropertyManagementSystem::updateFeeItem(const FeeItem& item) {
     for (FeeItem& current : items_) {
         if (current.id == item.id) {
             current = item;
-            return save();
+            return saveBilling();
         }
     }
     return false; // 未找到该编号
@@ -157,7 +227,7 @@ bool PropertyManagementSystem::recordPayment(const FeeRecord& record) {
         return false;
     }
     fees_.push_back(record);
-    return save();
+    return saveBilling();
 }
 
 /// 统计某业主累计欠费：遍历该业主全部缴费记录，累加 (应缴 - 实缴)
@@ -183,47 +253,131 @@ std::vector<FeeRecord> PropertyManagementSystem::queryFees(
     return result;
 }
 
-/// 创建物业任务：校验编号非空且唯一，通过后追加并落盘
-bool PropertyManagementSystem::createTask(const PropertyTask& task) {
-    const bool duplicate = std::any_of(
-        tasks_.begin(), tasks_.end(), [&](const PropertyTask& current) {
-            return current.id == task.id;
-        });
-    if (task.id.empty() || duplicate) {
+PropertyTask* PropertyManagementSystem::findTask(const std::string& taskId) {
+    const auto it = std::find_if(tasks_.begin(), tasks_.end(), [&](const PropertyTask& task) {
+        return task.id == taskId;
+    });
+    return it != tasks_.end() ? &*it : nullptr;
+}
+
+bool PropertyManagementSystem::appendTask(const PropertyTask& task) {
+    tasks_.push_back(task);
+    if (!saveTasks()) {
+        tasks_.pop_back();
         return false;
     }
-    tasks_.push_back(task);
-    return save();
+    return true;
+}
+
+bool PropertyManagementSystem::storeTaskUpdate(PropertyTask& task, PropertyTask updated) {
+    std::swap(task, updated);
+    if (!saveTasks()) {
+        std::swap(task, updated);
+        return false;
+    }
+    return true;
+}
+
+bool PropertyManagementSystem::createTask(const PropertyTask& task) {
+    if (task.id.empty() || findTask(task.id) || task.isRepair() ||
+        !task.reporterUsername.empty() || task.status == TaskStatus::AwaitingConfirmation) {
+        return false;
+    }
+    return appendTask(task);
 }
 
 /// 分配任务：仅允许给"未分配"任务指定负责人，并将状态置为 Assigned
 bool PropertyManagementSystem::assignTask(
     const std::string& taskId, const std::string& staffUsername) {
-    for (PropertyTask& task : tasks_) {
-        if (task.id == taskId && task.status == TaskStatus::Unassigned &&
-            !staffUsername.empty()) {
-            task.assignee = staffUsername;
-            task.status = TaskStatus::Assigned;
-            return save();
-        }
+    auto* task = findTask(taskId);
+    if (!task || task->status != TaskStatus::Unassigned || !hasText(staffUsername)) {
+        return false;
     }
-    return false;
+    auto updated = *task;
+    updated.assignee = staffUsername;
+    updated.status = TaskStatus::Assigned;
+    return storeTaskUpdate(*task, std::move(updated));
 }
 
-/// 按顺序规则流转任务状态
-/// 逻辑：任务状态必须严格推进到"下一个"状态
-///       （Unassigned->Assigned->InProgress->Completed），
-///       跳级或回退均被拒绝。
+/// 报修进展到进行中后，只能通过 finishRepair / confirmRepair 继续流转。
 bool PropertyManagementSystem::updateTaskStatus(
     const std::string& taskId, TaskStatus status) {
-    for (PropertyTask& task : tasks_) {
-        const int expected = static_cast<int>(task.status) + 1;
-        if (task.id == taskId && static_cast<int>(status) == expected) {
-            task.status = status;
-            return save();
-        }
+    auto* task = findTask(taskId);
+    if (!task) {
+        return false;
     }
-    return false;
+    const bool valid = (task->status == TaskStatus::Assigned && status == TaskStatus::InProgress) ||
+        (!task->isRepair() && ((task->status == TaskStatus::Unassigned && status == TaskStatus::Assigned) ||
+                              (task->status == TaskStatus::InProgress && status == TaskStatus::Completed)));
+    if (!valid) {
+        return false;
+    }
+    auto updated = *task;
+    updated.status = status;
+    return storeTaskUpdate(*task, std::move(updated));
+}
+
+bool PropertyManagementSystem::isCurrentOwner(const Owner& owner) const {
+    const auto current = owners_.findOwnerById(owner.id());
+    return current && !owner.username().empty() && current->username() == owner.username();
+}
+
+std::optional<std::string> PropertyManagementSystem::submitRepair(
+    const Owner& reporter, const std::string& title, const std::string& description) {
+    if (!isCurrentOwner(reporter) || !hasText(title) || !hasText(description)) {
+        return std::nullopt;
+    }
+
+    const auto now = std::time(nullptr);
+    std::tm local{};
+    char timestamp[32]{};
+    if (localtime_s(&local, &now) != 0 ||
+        !std::strftime(timestamp, sizeof(timestamp), "%Y.%m.%d %H:%M:%S", &local)) {
+        return std::nullopt;
+    }
+
+    PropertyTask task;
+    auto sequence = tasks_.size() + 1;
+    do {
+        task.id = "R-" + std::to_string(sequence++);
+    } while (findTask(task.id));
+    task.title = title;
+    task.description = description;
+    task.createdAt = timestamp;
+    task.reporterOwnerId = reporter.id();
+    task.reporterUsername = reporter.username();
+    return appendTask(task) ? std::optional<std::string>(task.id) : std::nullopt;
+}
+
+std::vector<PropertyTask> PropertyManagementSystem::queryRepairs(const Owner& reporter) const {
+    std::vector<PropertyTask> result;
+    if (isCurrentOwner(reporter)) {
+        std::copy_if(tasks_.begin(), tasks_.end(), std::back_inserter(result),
+                     [&](const PropertyTask& task) { return reportedBy(task, reporter); });
+    }
+    return result;
+}
+
+bool PropertyManagementSystem::finishRepair(const std::string& taskId, const std::string& note) {
+    auto* task = findTask(taskId);
+    if (!task || !task->isRepair() || task->status != TaskStatus::InProgress || !hasText(note)) {
+        return false;
+    }
+    auto updated = *task;
+    updated.completionNote = note;
+    updated.status = TaskStatus::AwaitingConfirmation;
+    return storeTaskUpdate(*task, std::move(updated));
+}
+
+bool PropertyManagementSystem::confirmRepair(const std::string& taskId, const Owner& reporter) {
+    auto* task = findTask(taskId);
+    if (!task || task->status != TaskStatus::AwaitingConfirmation ||
+        !isCurrentOwner(reporter) || !reportedBy(*task, reporter)) {
+        return false;
+    }
+    auto updated = *task;
+    updated.status = TaskStatus::Completed;
+    return storeTaskUpdate(*task, std::move(updated));
 }
 
 /// 查询任务列表：可按状态过滤（缺省返回全部任务）

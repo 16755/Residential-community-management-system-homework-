@@ -13,6 +13,7 @@ void check(bool condition, const char* message) {
 struct CommunityUiTestAccess {
     using Page = CommunityUI::Page;
     using Action = CommunityUI::Action;
+    static constexpr int pageCount = static_cast<int>(Page::Repairs) + 1;
     static void frame(CommunityUI& ui) {
         ImGui::NewFrame();
         ui.render();
@@ -29,6 +30,124 @@ struct CommunityUiTestAccess {
         ui.submit(Action::Create);
         success(ui);
     }
+    static void exerciseRepairs(CommunityUI& ui, const std::filesystem::path& directory,
+                                const OwnerManagementSystem& owners) {
+        const auto loginAs = [&](const char* username, const char* password) {
+            ui.logout();
+            ui.state_.username = username;
+            ui.state_.password = password;
+            check(ui.login(), "Repair test login failed");
+        };
+        const std::string description = "厨房水管漏水，位置在\"水槽下\"。\n请检查接头。";
+        const std::string note = "已更换接头。\n试水正常。";
+
+        loginAs("owner1", "pw1");
+        check(ui.allowed(Page::Repairs) && !ui.allowed(Page::Tasks), "Owner repair permissions wrong");
+        ui.changePage(Page::Repairs);
+        ui.state_.form = {"  \t", description};
+        ui.submit(Action::Create);
+        check(ui.state_.error && ui.rows().empty(), "Blank repair title accepted");
+        create(ui, Page::Repairs, {"厨房漏水", description});
+        const std::string repairId = ui.state_.selected;
+        check(repairId.rfind("R-", 0) == 0, "No automatic repair ID");
+        const auto newRepair = ui.rows();
+        check(newRepair.size() == 1 && newRepair[0].cells[2] == "未分配" &&
+              newRepair[0].cells[3] == "O0001" && !newRepair[0].cells[4].empty(), "Bad new repair data");
+        ui.submit(Action::ConfirmRepair);
+        check(ui.state_.error, "Unprocessed repair could be confirmed");
+        ui.state_.form[5] = "repairs";
+        ui.submit(Action::AssignTask);
+        check(ui.state_.error, "Owner was able to assign a repair");
+        frame(ui);
+
+        loginAs("owner2", "pw2");
+        ui.changePage(Page::Repairs);
+        check(ui.rows().empty(), "Other owner can see a repair");
+        create(ui, Page::Repairs, {"楼道灯损坏", "二楼灯不亮"});
+        check(ui.state_.selected != repairId && ui.rows().size() == 1, "Repairs not isolated per owner");
+
+        loginAs("access", "pw");
+        check(!ui.allowed(Page::Repairs), "Access staff can view repairs");
+        loginAs("repairs", "pw");
+        ui.changePage(Page::Repairs);
+        check(ui.rows().size() == 2 && !ui.canCreate(), "Property staff repair list or permission is wrong");
+        ui.state_.selected = repairId;
+        ui.submit(Action::AdvanceTask);
+        check(ui.state_.error, "Unassigned repair could be started");
+        ui.state_.form[5] = "repairs";
+        ui.submit(Action::AssignTask); success(ui);
+        ui.submit(Action::AdvanceTask); success(ui);
+        frame(ui);
+        ui.submit(Action::AdvanceTask);
+        check(ui.state_.error, "Repair could bypass submission of a processing result");
+        ui.state_.form[6] = " \t\n";
+        ui.submit(Action::FinishRepair);
+        check(ui.state_.error, "Blank repair result accepted");
+
+        const auto taskFile = directory / "property_tasks.csv";
+        const HANDLE lockedFile = CreateFileW(taskFile.c_str(), GENERIC_READ, FILE_SHARE_READ,
+                                              nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        check(lockedFile != INVALID_HANDLE_VALUE, "Could not lock task CSV for failure test");
+        ui.state_.form[6] = note;
+        ui.submit(Action::FinishRepair);
+        CloseHandle(lockedFile);
+        check(ui.state_.error && ui.rows()[0].cells[2] == "进行中", "Failed save changed repair status");
+
+        ui.submit(Action::FinishRepair); success(ui);
+        check(ui.rows()[0].cells[2] == "待业主确认" && ui.rows()[0].cells[7] == note,
+            "Repair result missing from property view");
+        ui.submit(Action::ConfirmRepair);
+        check(ui.state_.error, "Property staff confirmed an owner's repair");
+
+        PropertyManagementSystem restarted(owners, directory.string());
+        const auto firstOwner = owners.findOwnerById("O0001");
+        check(firstOwner.has_value(), "Missing repair fixture owner");
+        const auto reopened = restarted.queryRepairs(*firstOwner);
+        check(reopened.size() == 1 && reopened[0].status == TaskStatus::AwaitingConfirmation &&
+              community_ui::toUtf8(reopened[0].description) == description &&
+              community_ui::toUtf8(reopened[0].completionNote) == note, "Pending repair did not survive reload");
+        check(!restarted.updateTaskStatus(repairId, TaskStatus::Completed),
+            "Generic status API can bypass owner confirmation");
+        const Owner reusedId(firstOwner->id(), "", "", "", "", "", "replacement", "pw");
+        check(restarted.queryRepairs(reusedId).empty() && !restarted.confirmRepair(repairId, reusedId),
+            "Owner number alone granted access to a historical repair");
+
+        loginAs("owner2", "pw2");
+        ui.changePage(Page::Repairs);
+        ui.state_.selected = repairId;
+        ui.submit(Action::ConfirmRepair);
+        check(ui.state_.error, "Other owner confirmed a repair by guessing the ID");
+        loginAs("owner1", "pw1");
+        ui.changePage(Page::Repairs);
+        ui.state_.selected = repairId;
+        frame(ui);
+        ui.submit(Action::ConfirmRepair); success(ui);
+        check(ui.rows()[0].cells[2] == "已完成", "Owner confirmation was not displayed");
+        restarted.load();
+        const auto completed = restarted.queryRepairs(*firstOwner);
+        check(completed.size() == 1 && completed[0].status == TaskStatus::Completed,
+            "Repair completion did not survive reload");
+
+        const auto legacyDir = directory.parent_path() / "legacy";
+        std::filesystem::create_directories(legacyDir);
+        std::ofstream legacy(legacyDir / "property_tasks.csv");
+        legacy << "id,title,description,type,created,assignee,status,note\n"
+                  "T001,old,\"line 1\nline 2\",repair,2026.11.01,property,Completed,done\n";
+        legacy.close();
+        PropertyManagementSystem upgraded(owners, legacyDir.string());
+        check(upgraded.submitRepair(*firstOwner, "test", "test description").has_value(),
+            "Could not append a repair to the legacy task file");
+        upgraded.load();
+        const auto upgradedTasks = upgraded.queryTasks();
+        check(upgradedTasks.size() == 2 && !upgradedTasks[0].isRepair() &&
+              upgradedTasks[0].status == TaskStatus::Completed && upgradedTasks[0].description == "line 1\nline 2",
+              "Legacy internal task was lost or changed during upgrade");
+        OwnerManagementSystem replacementOwners((legacyDir / "owners.csv").string());
+        const auto replacementId = replacementOwners.addOwner(reusedId);
+        check(replacementId == firstOwner->id(), "Replacement owner did not reuse the same ID");
+        PropertyManagementSystem replacementProperty(replacementOwners, legacyDir.string());
+        check(replacementProperty.queryRepairs(reusedId).empty(), "Replacement owner can see historical repair");
+    }
     static void run(const std::filesystem::path& directory) {
         IntegrationSystem system(directory.string());
         CommunityUI ui(system);
@@ -38,7 +157,7 @@ struct CommunityUiTestAccess {
         check(ui.state_.password.empty(), "Failed-login password retained");
         ui.state_.password = "admin123";
         check(ui.login(), "Admin login failed");
-        for (int i = 0; i < 9; ++i) check(ui.allowed(static_cast<Page>(i)), "Missing admin page");
+        for (int i = 0; i < pageCount; ++i) check(ui.allowed(static_cast<Page>(i)), "Missing admin page");
 
         create(ui, Page::Owners, {"测试业主甲", "13800138000", "1", "1", "101", "owner1", "pw1"});
         check(ui.state_.selected == "O0001", "Owner ID is not automatic");
@@ -99,7 +218,7 @@ struct CommunityUiTestAccess {
         check(ui.rows().size() == 2, "Visitor enter/leave events missing");
 
         // Render every admin page with real table/form data, catching ImGui assertions.
-        for (int i = 0; i < 9; ++i) {
+        for (int i = 0; i < pageCount; ++i) {
             ui.changePage(static_cast<Page>(i));
             frame(ui); frame(ui);
         }
@@ -133,7 +252,7 @@ struct CommunityUiTestAccess {
         loginAs("property", "pw");
         check(ui.allowed(Page::Fees) && ui.allowed(Page::Tasks) &&
             !ui.allowed(Page::Vehicles) && !ui.allowed(Page::Accounts), "Property permissions wrong");
-        for (int i = 0; i < 9; ++i) {
+        for (int i = 0; i < pageCount; ++i) {
             auto page = static_cast<Page>(i);
             if (ui.allowed(page)) { ui.changePage(page); frame(ui); }
         }
@@ -144,7 +263,7 @@ struct CommunityUiTestAccess {
         check(ui.state_.error, "Property staff can delete staff");
         loginAs("access", "pw");
         check(ui.allowed(Page::Vehicles) && !ui.allowed(Page::Fees), "Access permissions wrong");
-        for (int i = 0; i < 9; ++i) {
+        for (int i = 0; i < pageCount; ++i) {
             auto page = static_cast<Page>(i);
             if (ui.allowed(page)) { ui.changePage(page); frame(ui); }
         }
@@ -158,7 +277,7 @@ struct CommunityUiTestAccess {
         check(ui.rows().empty(), "Owner can view other owner vehicles");
         ui.state_.query = "京A12345";
         check(ui.rows().size() == 1, "Owner vehicle query failed");
-        for (int i = 0; i < 9; ++i) {
+        for (int i = 0; i < pageCount; ++i) {
             auto page = static_cast<Page>(i);
             if (ui.allowed(page)) { ui.changePage(page); frame(ui); }
         }
@@ -249,6 +368,9 @@ struct CommunityUiTestAccess {
             "Built-in administrator cannot sign in after reload");
         check(persistedAccounts.authenticate("admin2", "pw", reloaded, account),
             "Protected administrator cannot sign in after reload");
+        loginAs("admin", "admin123");
+        create(ui, Page::Accounts, {"repairs", "pw", "维修人员", "PropertyStaff"});
+        exerciseRepairs(ui, directory, reloaded);
         ui.logout(); frame(ui);
     }
 };
@@ -272,7 +394,7 @@ int main() {
         check(community_ui::findDataDirectory(root / "data" / "bin") == root / "data", "Nested output lookup failed");
         ImGui::DestroyContext();
         std::filesystem::remove_all(root);
-        std::cout << "PASS: UI workflows, four-role permissions, persistence, encoding, and rendering.\n";
+        std::cout << "PASS: UI workflows, owner repairs, four-role permissions, persistence, encoding, and rendering.\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "FAIL: " << error.what() << "\nData: " << root << '\n';

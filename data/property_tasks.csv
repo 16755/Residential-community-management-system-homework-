@@ -1,2 +1,3 @@
-id,title,description,type,created,assignee,status,note
-1,清理垃圾,派遣人员清理垃圾,打扫,2026.11.09 14:24:19,123,Completed,
+id,title,description,type,created,assignee,status,note,reporter_owner_id,reporter_username
+1,清理垃圾,派遣人员清理垃圾,打扫,2026.11.09 14:24:19,123,Completed,,,
+R-2,水管漏水,水管漏水需要维修,,2026.11.26 00:55:29,admin,Completed,完成,O0002,hcr

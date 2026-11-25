@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cmath>
 #include <ctime>
+#include <iterator>
 #include <stdexcept>
 #include <utility>
 
@@ -29,9 +30,11 @@ constexpr const char* pageNames[] = {"业主资料",
                                      "车位管理",
                                      "访客管理",
                                      "门禁点",
-                                     "工作人员账号"};
-constexpr const char* navIds[] = {"01", "02", "03", "04", "05", "06", "07", "08", "09"};
-constexpr const char* taskNames[] = {"未分配", "已分配", "进行中", "已完成"};
+                                     "工作人员账号",
+                                     "业主报修"};
+constexpr const char* navIds[] = {"01", "02", "03", "04", "05", "06", "07", "08", "09", "10"};
+static_assert(std::size(navIds) == std::size(pageNames));
+constexpr const char* taskNames[] = {"未分配", "已分配", "进行中", "已完成", "待业主确认"};
 
 // 为新增表单预填日期或时间；仅格式化显示，不负责生成业务编号。
 std::string today(const char* format = "%Y.%m.%d") {
@@ -194,6 +197,8 @@ std::vector<const char*> CommunityUI::tableColumns() const {
             return {"月份", "收费项目", "应缴", "实缴", "欠费", "缴费日期"};
         case Page::Tasks:
             return {"编号", "标题", "描述", "类型", "创建时间", "负责人", "状态"};
+        case Page::Repairs:
+            return {"编号", "标题", "状态", "报修业主", "提交时间", "负责人", "问题描述", "处理结果"};
         case Page::People:
             return {"流水编号", "人员编号", "类型", "方向", "时间", "门禁点", "备注"};
         case Page::Vehicles:
@@ -223,15 +228,21 @@ CommunityUI::CommunityUI(IntegrationSystem& system) : system_(system) {
     initializeForm();
 }
 
-std::string CommunityUI::ownId() const {
-    const auto owner = std::dynamic_pointer_cast<Owner>(system_.currentUser_);
-    if (owner) {
-        return owner->id();
-    }
-    return "";
+const char* CommunityUI::pageName(Page page) const {
+    return page == Page::Repairs && currentOwner()
+        ? "我的报修" : pageNames[static_cast<int>(page)];
 }
 
-// 页面访问权限：导航显示及实际操作都使用此规则；业主仅开放本人查询页。
+const Owner* CommunityUI::currentOwner() const {
+    return dynamic_cast<const Owner*>(system_.currentUser_.get());
+}
+
+std::string CommunityUI::ownId() const {
+    const auto* owner = currentOwner();
+    return owner ? owner->id() : "";
+}
+
+// 页面访问权限：业主可查询本人资料，并独立提交和确认本人的报修。
 bool CommunityUI::allowed(Page page) const {
     const auto& user = system_.currentUser_;
     if (!user) {
@@ -239,7 +250,7 @@ bool CommunityUI::allowed(Page page) const {
     }
     if (user->role() == Role::Owner) {
         return page == Page::Owners || page == Page::Fees || page == Page::People ||
-               page == Page::Vehicles || page == Page::Parking;
+               page == Page::Vehicles || page == Page::Parking || page == Page::Repairs;
     }
     switch (page) {
         case Page::Owners:
@@ -247,6 +258,7 @@ bool CommunityUI::allowed(Page page) const {
         case Page::Fees:
             return user->hasPermission(Permission::ManageFees);
         case Page::Tasks:
+        case Page::Repairs:
             return user->hasPermission(Permission::ManageTasks);
         case Page::Accounts:
             return user->hasPermission(Permission::ManageAccounts);
@@ -261,6 +273,9 @@ bool CommunityUI::canCreate() const {
     }
     if (state_.page == Page::Owners) {
         return system_.currentUser_->hasPermission(Permission::ManageOwner);
+    }
+    if (state_.page == Page::Repairs) {
+        return currentOwner() != nullptr;
     }
     return system_.currentUser_->role() != Role::Owner;
 }
@@ -412,6 +427,22 @@ std::string CommunityUI::assigneeName(const std::string& username) const {
     return "未找到工作人员（" + toUtf8(username) + "）";
 }
 
+std::vector<PropertyTask> CommunityUI::workOrders() const {
+    if ((state_.page != Page::Tasks && state_.page != Page::Repairs) || !allowed(state_.page)) {
+        return {};
+    }
+    if (const auto* owner = currentOwner()) {
+        return system_.property_.queryRepairs(*owner);
+    }
+
+    auto tasks = system_.property_.queryTasks();
+    const bool repairPage = state_.page == Page::Repairs;
+    tasks.erase(std::remove_if(tasks.begin(), tasks.end(), [repairPage](const PropertyTask& task) {
+        return task.isRepair() != repairPage;
+    }), tasks.end());
+    return tasks;
+}
+
 // 中央表格的数据准备：读取当前页业务数据，处理权限隔离、中文及金额展示。
 // 这里只生成显示用行数据，选中后的操作仍使用行标识调用原业务接口。
 std::vector<CommunityUI::Row> CommunityUI::rows() const {
@@ -470,7 +501,7 @@ std::vector<CommunityUI::Row> CommunityUI::rows() const {
         }
         case Page::Tasks:
             // 物业任务表：汇总工单信息，负责人展示姓名，状态展示中文。
-            for (const auto& task : system_.property_.queryTasks()) {
+            for (const auto& task : workOrders()) {
                 Row row;
                 row.key = toUtf8(task.id);
                 row.cells = {toUtf8(task.id),
@@ -480,6 +511,21 @@ std::vector<CommunityUI::Row> CommunityUI::rows() const {
                              toUtf8(task.createdAt),
                              assigneeName(task.assignee),
                              taskNames[static_cast<int>(task.status)]};
+                result.push_back(std::move(row));
+            }
+            break;
+        case Page::Repairs:
+            for (const auto& task : workOrders()) {
+                Row row;
+                row.key = toUtf8(task.id);
+                row.cells = {row.key,
+                             toUtf8(task.title),
+                             taskNames[static_cast<int>(task.status)],
+                             toUtf8(task.reporterOwnerId),
+                             toUtf8(task.createdAt),
+                             assigneeName(task.assignee),
+                             toUtf8(task.description),
+                             toUtf8(task.completionNote)};
                 result.push_back(std::move(row));
             }
             break;
@@ -615,6 +661,9 @@ void CommunityUI::validateCreateForm(const std::array<std::string, 8>& fields) c
         case Page::Tasks:
             requiredFields = {0, 1, 4};
             break;
+        case Page::Repairs:
+            requiredFields = {0, 1};
+            break;
         case Page::People:
             requiredFields = {0, 1, 3};
             break;
@@ -692,6 +741,14 @@ bool CommunityUI::createRecord(const std::array<std::string, 8>& fields,
             task.createdAt = fields[4];
             return system_.property_.createTask(task);
         }
+        case Page::Repairs: {
+            const auto* owner = currentOwner();
+            if (!owner) {
+                return false;
+            }
+            generatedId = system_.property_.submitRepair(*owner, fields[0], fields[1]);
+            return generatedId.has_value();
+        }
         case Page::People: {
             AccessRecord record;
             record.personId = fields[0];
@@ -767,7 +824,8 @@ bool CommunityUI::createRecord(const std::array<std::string, 8>& fields,
 // 右侧操作面板的统一提交入口：权限检查 → 编码转换 → 业务调用 → 结果反馈。
 void CommunityUI::submit(Action action) {
     // 1. 执行时再次检查权限，并确认操作属于当前页面。
-    if (!canCreate()) {
+    if (!allowed(state_.page) ||
+        ((action == Action::Create || state_.page != Page::Repairs) && !canCreate())) {
         notify(false, "当前账号无权执行此操作。");
         return;
     }
@@ -782,7 +840,11 @@ void CommunityUI::submit(Action action) {
             break;
         case Action::AssignTask:
         case Action::AdvanceTask:
-            requiredPage = Page::Tasks;
+            requiredPage = state_.page == Page::Repairs ? Page::Repairs : Page::Tasks;
+            break;
+        case Action::FinishRepair:
+        case Action::ConfirmRepair:
+            requiredPage = Page::Repairs;
             break;
         case Action::ReleaseParking:
             requiredPage = Page::Parking;
@@ -801,12 +863,16 @@ void CommunityUI::submit(Action action) {
         notify(false, "当前页面不允许执行此操作。");
         return;
     }
+    if ((action == Action::AssignTask || action == Action::AdvanceTask || action == Action::FinishRepair) &&
+        !system_.currentUser_->hasPermission(Permission::ManageTasks)) {
+        notify(false, "当前账号无权处理工单。");
+        return;
+    }
 
     try {
         // 2. 将 UTF-8 界面输入转换为业务编码，不直接修改原表单。
         std::array<std::string, 8> businessFields{};
-        if (action == Action::Create || action == Action::AssignTask ||
-            action == Action::CheckoutVisitor) {
+        if (action == Action::Create) {
             for (std::size_t index = 0; index < businessFields.size(); ++index) {
                 businessFields[index] = toBusiness(state_.form[index]);
             }
@@ -847,7 +913,13 @@ void CommunityUI::submit(Action action) {
                 }
                 break;
             case Action::AssignTask: {
-                const auto& assigneeAccount = businessFields[5];
+                const auto tasks = workOrders();
+                if (std::none_of(tasks.begin(), tasks.end(), [&](const PropertyTask& task) {
+                    return task.id == selectedId;
+                })) {
+                    break;
+                }
+                const auto assigneeAccount = toBusiness(state_.form[5]);
                 bool assigneeExists = false;
                 for (const auto& profile : system_.accounts_.staffProfiles()) {
                     if (profile.username == assigneeAccount) {
@@ -862,25 +934,38 @@ void CommunityUI::submit(Action action) {
                 break;
             }
             case Action::AdvanceTask:
-                for (const auto& task : system_.property_.queryTasks()) {
-                    if (task.id != selectedId || task.status == TaskStatus::Completed) {
+                for (const auto& task : workOrders()) {
+                    if (task.id != selectedId) {
                         continue;
                     }
                     if (task.status == TaskStatus::Unassigned) {
                         throw std::runtime_error("请先为任务分配负责人。");
                     }
 
-                    const int nextStatusValue = static_cast<int>(task.status) + 1;
-                    const auto nextStatus = static_cast<TaskStatus>(nextStatusValue);
-                    success = system_.property_.updateTaskStatus(selectedId, nextStatus);
+                    if (task.status == TaskStatus::Assigned) {
+                        success = system_.property_.updateTaskStatus(selectedId, TaskStatus::InProgress);
+                    } else if (task.status == TaskStatus::InProgress && !task.isRepair()) {
+                        success = system_.property_.updateTaskStatus(selectedId, TaskStatus::Completed);
+                    }
                     break;
                 }
                 break;
+            case Action::FinishRepair:
+                success = system_.property_.finishRepair(selectedId, toBusiness(state_.form[6]));
+                if (success) {
+                    state_.form[6].clear();
+                }
+                break;
+            case Action::ConfirmRepair: {
+                const auto* owner = currentOwner();
+                success = owner && system_.property_.confirmRepair(selectedId, *owner);
+                break;
+            }
             case Action::ReleaseParking:
                 success = system_.access_.releaseParking(selectedId);
                 break;
             case Action::CheckoutVisitor: {
-                const auto& exitGateId = businessFields[5];
+                const auto exitGateId = toBusiness(state_.form[5]);
                 success = system_.access_.visitorCheckout(selectedId, exitGateId);
                 break;
             }
@@ -1002,12 +1087,12 @@ void CommunityUI::renderNavigation() {
     ImGui::TextDisabled("工作空间");
     ImGui::Separator();
     // 功能导航列表：点击项只改变统一页面状态，不创建独立业务数据副本。
-    for (int i = 0; i < 9; ++i) {
+    for (std::size_t i = 0; i < std::size(pageNames); ++i) {
         const auto page = static_cast<Page>(i);
         if (!allowed(page)) {
             continue;
         }
-        const std::string label = std::string(navIds[i]) + "  " + pageNames[i];
+        const std::string label = std::string(navIds[i]) + "  " + pageName(page);
         if (ImGui::Selectable(label.c_str(), state_.page == page, 0, ImVec2(0, scaled(34)))) {
             changePage(page);
         }
@@ -1028,7 +1113,7 @@ void CommunityUI::renderNavigation() {
 void CommunityUI::renderContent() {
     ImGui::Begin("数据工作区###Content", nullptr, ImGuiWindowFlags_NoCollapse);
     EndWindow endWindow;
-    ImGui::TextUnformatted(pageNames[static_cast<int>(state_.page)]);
+    ImGui::TextUnformatted(pageName(state_.page));
     ImGui::Separator();
     // 查询区：根据业务页显示业主选择、访客编号、完整车牌或在访筛选。
     const bool ownerOnly = system_.currentUser_->role() == Role::Owner;
@@ -1080,8 +1165,12 @@ void CommunityUI::renderRecordTable(const std::vector<Row>& records) {
                           ImVec2(0, ImGui::GetContentRegionAvail().y))) {
         // 冻结第一行表头，纵向滚动时仍能辨认每一列。
         ImGui::TableSetupScrollFreeze(0, 1);
-        for (const auto* heading : headings) {
-            ImGui::TableSetupColumn(heading);
+        for (std::size_t column = 0; column < headings.size(); ++column) {
+            if (state_.page == Page::Repairs && (column == 1 || column >= 6)) {
+                ImGui::TableSetupColumn(headings[column], ImGuiTableColumnFlags_WidthFixed, scaled(156));
+            } else {
+                ImGui::TableSetupColumn(headings[column]);
+            }
         }
         ImGui::TableHeadersRow();
         // 只绘制可见行，避免记录较多时每帧提交全部单元格。
@@ -1098,12 +1187,18 @@ void CommunityUI::renderRecordTable(const std::vector<Row>& records) {
                 const ImGuiSelectableFlags selectionFlags =
                     ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap;
                 if (ImGui::Selectable(row.cells[0].c_str(), isSelected, selectionFlags)) {
+                    if (!isSelected && state_.page == Page::Repairs) {
+                        state_.form[6].clear();
+                    }
                     state_.selected = row.key;
                 }
                 for (int columnIndex = 1; columnIndex < static_cast<int>(row.cells.size());
                      ++columnIndex) {
                     ImGui::TableSetColumnIndex(columnIndex);
-                    ImGui::TextUnformatted(row.cells[columnIndex].c_str());
+                    const auto& cell = row.cells[columnIndex];
+                    const bool workOrder = state_.page == Page::Tasks || state_.page == Page::Repairs;
+                    const auto lineEnd = workOrder ? cell.find_first_of("\r\n") : std::string::npos;
+                    ImGui::TextUnformatted(cell.c_str(), lineEnd == std::string::npos ? nullptr : cell.c_str() + lineEnd);
                 }
                 ImGui::PopID();
             }
@@ -1133,18 +1228,25 @@ void CommunityUI::renderActions() {
 
     renderSelectedDetails();
 
-    // 只读账号仍可查看详情，但不绘制新增表单与修改按钮。
+    if (state_.page == Page::Repairs && allowed(Page::Repairs)) {
+        renderSelectedActions();
+    }
+    // 只读账号不绘制新增表单；物业人员在报修页只处理已有工单。
     if (!canCreate()) {
         return;
     }
-    ImGui::Text("新增 · %s", pageNames[static_cast<int>(state_.page)]);
+    if (state_.page == Page::Repairs) {
+        ImGui::TextUnformatted("提交报修");
+    } else {
+        ImGui::Text("新增 · %s", pageName(state_.page));
+    }
     ImGui::Spacing();
     const bool formReady = renderCreateForm();
 
     // 统一提交区：必填项或下拉选项不完整时禁用新增按钮。
     ImGui::Spacing();
     ImGui::BeginDisabled(!formReady);
-    if (actionButton("提交新增", 36)) {
+    if (actionButton(state_.page == Page::Repairs ? "提交报修" : "提交新增", 36)) {
         submit(Action::Create);
     }
     ImGui::EndDisabled();
@@ -1153,7 +1255,9 @@ void CommunityUI::renderActions() {
         initializeForm();
     }
 
-    renderSelectedActions();
+    if (state_.page != Page::Repairs) {
+        renderSelectedActions();
+    }
 }
 
 // 操作面板 · 所选记录详情：复用中央表格的列名与数据，长文本自动换行。
@@ -1248,6 +1352,13 @@ bool CommunityUI::renderCreateForm() {
             textField("创建时间", createdAt);
 
             return !taskId.empty() && !title.empty() && !createdAt.empty();
+        }
+        case Page::Repairs: {
+            auto& title = state_.form[0];
+            auto& description = state_.form[1];
+            textField("报修标题", title);
+            textField("问题描述", description, false, true);
+            return !title.empty() && !description.empty();
         }
         case Page::People: {
             // 人员登记表单：0业主编号、1方向、2备注、3门禁点编号。
@@ -1377,18 +1488,8 @@ void CommunityUI::renderSelectedActions() {
                 }
                 ImGui::EndPopup();
             }
-        } else if (state_.page == Page::Tasks) {
-            // 任务操作区：按姓名选择负责人，内部保留账号关联；支持顺序推进状态。
-            auto& assigneeAccount = state_.form[5];
-            const bool hasStaff = choices("负责人姓名", assigneeAccount, staffChoices());
-            ImGui::BeginDisabled(!hasStaff);
-            if (actionButton("分配负责人", 32)) {
-                submit(Action::AssignTask);
-            }
-            ImGui::EndDisabled();
-            if (actionButton("推进到下一状态", 32)) {
-                submit(Action::AdvanceTask);
-            }
+        } else if (state_.page == Page::Tasks || state_.page == Page::Repairs) {
+            renderWorkOrderActions();
         } else if (state_.page == Page::Parking) {
             // 车位操作区：释放所选车位，由业务层处理状态及关联资料。
             if (actionButton("释放所选车位")) {
@@ -1403,6 +1504,48 @@ void CommunityUI::renderSelectedActions() {
                 submit(Action::CheckoutVisitor);
             }
             ImGui::EndDisabled();
+        }
+    }
+}
+
+void CommunityUI::renderWorkOrderActions() {
+    const auto tasks = workOrders();
+    const auto selected = std::find_if(tasks.begin(), tasks.end(), [&](const PropertyTask& task) {
+        return toUtf8(task.id) == state_.selected;
+    });
+    if (selected == tasks.end()) {
+        return;
+    }
+
+    if (currentOwner()) {
+        if (selected->status == TaskStatus::AwaitingConfirmation && actionButton("确认维修完成")) {
+            submit(Action::ConfirmRepair);
+        }
+        return;
+    }
+
+    if (selected->status == TaskStatus::Unassigned) {
+        const bool hasStaff = choices("负责人姓名", state_.form[5], staffChoices());
+        ImGui::BeginDisabled(!hasStaff);
+        if (actionButton("分配负责人")) {
+            submit(Action::AssignTask);
+        }
+        ImGui::EndDisabled();
+    } else if (selected->status == TaskStatus::Assigned) {
+        if (actionButton("开始处理")) {
+            submit(Action::AdvanceTask);
+        }
+    } else if (selected->status == TaskStatus::InProgress) {
+        if (selected->isRepair()) {
+            auto& note = state_.form[6];
+            textField("处理结果", note, false, true);
+            ImGui::BeginDisabled(note.empty());
+            if (actionButton("提交处理结果")) {
+                submit(Action::FinishRepair);
+            }
+            ImGui::EndDisabled();
+        } else if (actionButton("完成任务")) {
+            submit(Action::AdvanceTask);
         }
     }
 }

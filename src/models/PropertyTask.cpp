@@ -15,6 +15,8 @@ std::string taskStatusToString(TaskStatus status) {
         return "InProgress";
     case TaskStatus::Completed:
         return "Completed";
+    case TaskStatus::AwaitingConfirmation:
+        return "AwaitingConfirmation";
     }
     return "Unknown"; // 防御性分支：未知状态
 }
@@ -29,6 +31,8 @@ bool parseTaskStatus(const std::string& value, TaskStatus& status) {
         status = TaskStatus::InProgress;
     } else if (value == "Completed") {
         status = TaskStatus::Completed;
+    } else if (value == "AwaitingConfirmation") {
+        status = TaskStatus::AwaitingConfirmation;
     } else {
         return false;
     }
