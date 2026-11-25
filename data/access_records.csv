@@ -1,1 +1,6 @@
 id,personId,personType,direction,time,note,gateId
+2026.11.09-visitor-E,2026.11.09-visitor,Visitor,Enter,2026.11.09 20:33:43,打人,AP0004
+2026.11.09-visitor-L,2026.11.09-visitor,Visitor,Leave,2026.11.09 20:33:59,打人,AP0001
+2026.11.09-visitor-2-E,2026.11.09-visitor-2,Visitor,Enter,2026.11.09 20:35:48,打人,AP0001
+AR-20261109203901,O0001,Owner,Leave,2026.11.09 20:39:01,,AP0001
+2026.11.09-visitor-2-L,2026.11.09-visitor-2,Visitor,Leave,2026.11.09 20:50:45,打人,AP0004

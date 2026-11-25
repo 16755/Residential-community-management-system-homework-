@@ -1,1 +1,3 @@
 visitorId,name,phone,hostOwnerId,reason,enterTime,leaveTime,status,gateId
+2026.11.09-visitor,陈楷达,1,O0001,打人,2026.11.09 20:33:43,2026.11.09 20:33:59,Left,AP0004
+2026.11.09-visitor-2,刘其滨,1,O0001,打人,2026.11.09 20:35:48,2026.11.09 20:50:45,Left,AP0001

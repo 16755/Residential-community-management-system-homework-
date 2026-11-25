@@ -22,6 +22,7 @@
 ///       - 各菜单方法（ownerMenu/propertyMenu/accessMenu/adminMenu）
 ///         负责具体的命令行交互与权限校验。
 class IntegrationSystem {
+    friend class CommunityUI;
 private:
     OwnerManagementSystem owners_;     ///< 业主管理系统
     AccountService accounts_;          ///< 账号服务
@@ -41,8 +42,8 @@ private:
     void adminMenu();
 
 public:
-    /// 构造函数：按固定数据路径初始化四个子系统并加载账号
-    IntegrationSystem();
+    /// 构造函数：使用指定数据目录初始化四个子系统并加载账号
+    explicit IntegrationSystem(std::string dataDirectory = "data");
     /// 程序主循环：登录 -> 按角色进入菜单 -> 登出，输入 0 退出程序
     void run();
 };

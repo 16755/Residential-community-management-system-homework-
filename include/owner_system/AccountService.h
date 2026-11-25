@@ -13,6 +13,13 @@
 #include "models/User.h"
 #include "owner_system/OwnerManagementSystem.h"
 
+/// 用于界面选择工作人员的公开资料，不包含密码。
+struct StaffProfile {
+    std::string username;
+    std::string name;
+    Role role;
+};
+
 /// 账号服务类
 /// 职责：工作人员账号的存储层 + 全系统唯一的登录认证入口：
 ///       - 从 data/accounts.csv 加载工作人员账号（内存容器持有 shared_ptr<User>）；
@@ -32,6 +39,8 @@ public:
     void load(const OwnerManagementSystem& owners);
     /// 将内存中的工作人员账号列表写回 CSV 文件
     bool save() const;
+    /// 获取工作人员公开资料，供负责人选择和姓名展示使用。
+    std::vector<StaffProfile> staffProfiles() const;
     /// 登录认证：先匹配业主账号，再匹配工作人员账号
     /// @param username 用户名
     /// @param password 密码

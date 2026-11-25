@@ -173,4 +173,21 @@
       <Filter>include\models</Filter>
     </ClInclude>
   </ItemGroup>
+  <ItemGroup>
+    <Filter Include="ImGui_docking">
+      <UniqueIdentifier>{902efcb7-1f41-4cd5-b09f-4ad8808daf51}</UniqueIdentifier>
+    </Filter>
+    <ClCompile Include="src\integration\ui.cpp"><Filter>src\integration</Filter></ClCompile>
+    <ClCompile Include="src\integration\UiApplication.cpp"><Filter>src\integration</Filter></ClCompile>
+    <ClCompile Include="ImGui_docking\imgui.cpp"><Filter>ImGui_docking</Filter></ClCompile>
+    <ClCompile Include="ImGui_docking\imgui_demo.cpp"><Filter>ImGui_docking</Filter></ClCompile>
+    <ClCompile Include="ImGui_docking\imgui_draw.cpp"><Filter>ImGui_docking</Filter></ClCompile>
+    <ClCompile Include="ImGui_docking\imgui_tables.cpp"><Filter>ImGui_docking</Filter></ClCompile>
+    <ClCompile Include="ImGui_docking\imgui_widgets.cpp"><Filter>ImGui_docking</Filter></ClCompile>
+    <ClCompile Include="ImGui_docking\imgui_stdlib.cpp"><Filter>ImGui_docking</Filter></ClCompile>
+    <ClCompile Include="ImGui_docking\imgui_impl_win32.cpp"><Filter>ImGui_docking</Filter></ClCompile>
+    <ClCompile Include="ImGui_docking\imgui_impl_dx11.cpp"><Filter>ImGui_docking</Filter></ClCompile>
+    <ClInclude Include="include\integration\ui.h"><Filter>include\integration</Filter></ClInclude>
+    <ClInclude Include="ImGui_docking\*.h"><Filter>ImGui_docking</Filter></ClInclude>
+  </ItemGroup>
 </Project>

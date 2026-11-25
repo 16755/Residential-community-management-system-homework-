@@ -76,6 +76,15 @@ bool AccountService::save() const {
     return true;
 }
 
+std::vector<StaffProfile> AccountService::staffProfiles() const {
+    std::vector<StaffProfile> profiles;
+    profiles.reserve(staff_.size());
+    for (const auto& user : staff_) {
+        profiles.push_back({user->username(), user->name(), user->role()});
+    }
+    return profiles;
+}
+
 /// 登录认证：全系统唯一的登录入口
 /// 逻辑：先遍历业主列表匹配 用户名+密码（命中则构造 Owner 副本返回），
 ///       再遍历工作人员账号列表匹配；都未命中则返回 false。

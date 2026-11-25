@@ -12,15 +12,15 @@
 
 #include "models/Owner.h"
 
-/// 构造函数：按固定数据路径初始化四个子系统
+/// 构造函数：按指定数据目录初始化四个子系统
 /// 逻辑：业主/物业/门禁系统在构造时即加载数据；
 ///       accounts_ 构造后再 load() 并立即 save() 一次，
 ///       确保内置管理员账号落盘存在。
-IntegrationSystem::IntegrationSystem()
-    : owners_("data/owners.csv"),
-      accounts_("data/accounts.csv"),
-      property_(owners_, "data"),
-      access_(owners_, "data") {
+IntegrationSystem::IntegrationSystem(std::string dataDirectory)
+    : owners_(dataDirectory + "/owners.csv"),
+      accounts_(dataDirectory + "/accounts.csv"),
+      property_(owners_, dataDirectory),
+      access_(owners_, dataDirectory) {
     accounts_.load(owners_);
     accounts_.save();
 }

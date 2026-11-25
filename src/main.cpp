@@ -1,13 +1,11 @@
 ﻿// ============================================================================
 // 文件: main.cpp
-// 职责: 程序入口。创建 IntegrationSystem 并启动整个小区管理系统。
+// 职责: 程序入口。启动 ImGui 可视化界面；控制台入口仍保留在 IntegrationSystem。
 // ============================================================================
-#include "integration/IntegrationSystem.h"
+#include "integration/ui.h"
 
-/// 程序入口：启动小区管理系统主循环
+/// 程序入口：启动小区管理系统可视化界面
 /// @return 正常退出返回 0
 int main() {
-    IntegrationSystem system; ///< 创建系统实例（内部完成各子系统初始化与数据加载）
-    system.run();             ///< 进入登录与菜单主循环
-    return 0;//test
+    return community_ui::runApplication();
 }
