@@ -172,6 +172,10 @@ struct CommunityUiTestAccess {
         check(ui.rows()[0].cells[7] == "正常入住", "Approved owner is not active");
         ui.submit(Action::ApproveOwner);
         check(ui.state_.error, "Active owner was approved twice");
+        ui.changePage(Page::Accounts);
+        ui.state_.form = {"owner1", "staffpw", "冲突工作人员", "PropertyStaff"};
+        ui.submit(Action::Create);
+        check(ui.state_.error, "Staff reused an owner username");
         create(ui, Page::Owners, {"测试业主乙", "13800138001", "1", "1", "102", "owner2", "pw2"});
         check(ui.state_.selected == "O0002", "Owner sequence failed");
         ui.submit(Action::ApproveOwner); success(ui);
@@ -179,6 +183,10 @@ struct CommunityUiTestAccess {
         check(ui.state_.selected == "AP0001", "Gate ID failed");
         create(ui, Page::Points, {"一栋单元门", "BuildingGate", "一栋"});
         create(ui, Page::Accounts, {"property", "pw", "物业人员", "PropertyStaff"});
+        ui.changePage(Page::Owners);
+        ui.state_.form = {"冲突业主", "", "", "", "", "property", "ownerpw"};
+        ui.submit(Action::Create);
+        check(ui.state_.error, "Owner reused a staff username");
         create(ui, Page::Accounts, {"access", "pw", "门禁人员", "AccessStaff"});
         create(ui, Page::Fees, {"O0001", "F001", "2026-11", "120", "80", "2026.11.09"});
         ui.state_.queryOwner = "O0001";
@@ -418,6 +426,53 @@ struct CommunityUiTestAccess {
         loginAs("admin", "admin123");
         create(ui, Page::Accounts, {"repairs", "pw", "维修人员", "PropertyStaff"});
         exerciseRepairs(ui, directory, reloaded);
+
+        const auto conflictDirectory = directory.parent_path() / "account-conflicts";
+        std::filesystem::create_directories(conflictDirectory);
+        std::ofstream conflictOwnersFile(conflictDirectory / "owners.csv");
+        conflictOwnersFile <<
+            "id,name,phone,building,unit,room,username,password,status\n"
+            "O0100,Shared Owner,,,,,shared,ownerpw,Active\n"
+            "O0101,Owner Only,,,,,ownerOnly,pw,Active\n";
+        conflictOwnersFile.close();
+        std::ofstream conflictAccountsFile(conflictDirectory / "accounts.csv");
+        conflictAccountsFile <<
+            "username,password,name,role\n"
+            "admin,admin123,Administrator,Admin\n"
+            "shared,staffpw,Shared Staff,PropertyStaff\n"
+            "duplicate,one,First,PropertyStaff\n"
+            "duplicate,two,Second,AccessStaff\n"
+            "staffOnly,pw,Staff Only,AccessStaff\n";
+        conflictAccountsFile.close();
+
+        OwnerManagementSystem conflictOwners((conflictDirectory / "owners.csv").string());
+        AccountService conflictAccounts((conflictDirectory / "accounts.csv").string());
+        conflictAccounts.load(conflictOwners);
+        std::shared_ptr<User> conflictAccount;
+        check(conflictAccounts.authenticate("admin", "admin123", conflictOwners, conflictAccount),
+              "Conflict fixture administrator cannot sign in");
+        check(!conflictAccounts.authenticate("shared", "ownerpw", conflictOwners, conflictAccount) &&
+              !conflictAccount, "Owner/staff collision authenticated an owner");
+        check(!conflictAccounts.authenticate("shared", "staffpw", conflictOwners, conflictAccount),
+              "Owner/staff collision authenticated a staff member");
+        check(!conflictAccounts.authenticate("duplicate", "one", conflictOwners, conflictAccount) &&
+              !conflictAccounts.authenticate("duplicate", "two", conflictOwners, conflictAccount),
+              "Duplicate staff username authenticated by CSV order");
+        const auto conflictProfiles = conflictAccounts.staffProfiles();
+        check(std::count_if(conflictProfiles.begin(), conflictProfiles.end(), [](const auto& profile) {
+                  return profile.usernameConflict;
+              }) == 3, "Historical username conflicts were not reported");
+        check(!conflictAccounts.addStaff("ownerOnly", "pw", "Rejected", Role::PropertyStaff),
+              "Business API allowed staff to reuse an owner username");
+        check(!conflictOwners.addOwner(
+                  Owner("", "Rejected", "", "", "", "", "staffOnly", "pw")).has_value(),
+              "Business API allowed owner to reuse a staff username");
+        check(!conflictOwners.updateOwner(
+                  Owner("O0101", "Rejected", "", "", "", "", "staffOnly", "pw")),
+              "Owner update reused a staff username");
+        check(!conflictOwners.addOwner(
+                  Owner("", "Reserved", "", "", "", "", "admin", "pw")).has_value(),
+              "Owner used the reserved administrator username");
         ui.logout(); frame(ui);
     }
 };

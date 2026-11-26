@@ -23,7 +23,7 @@ AccountService::AccountService(std::string file) : file_(std::move(file)) {}
 /// 逻辑：跳过表头，按角色字段（第 4 列）实例化对应派生类；
 ///       若文件中不存在内置 admin 账号，则自动补建默认管理员
 ///       （admin / admin123），保证系统始终有最高权限入口。
-void AccountService::load(const OwnerManagementSystem&) {
+void AccountService::load(OwnerManagementSystem& owners) {
     staff_.clear();
     std::ifstream input(file_);
     std::string line;
@@ -31,7 +31,8 @@ void AccountService::load(const OwnerManagementSystem&) {
 
     while (std::getline(input, line)) {
         const std::vector<std::string> fields = splitCsv(line);
-        if (fields.size() < 4) {
+        if (fields.size() < 4 || fields[0].empty() ||
+            (fields[0] == "admin" && fields[3] != "Admin")) {
             continue;
         }
 
@@ -50,12 +51,14 @@ void AccountService::load(const OwnerManagementSystem&) {
     // 兜底：确保始终存在内置管理员账号
     const bool hasAdmin = std::any_of(
         staff_.begin(), staff_.end(), [](const std::shared_ptr<User>& user) {
-            return user->username() == "admin";
+            return user->username() == "admin" && user->role() == Role::Admin;
         });
     if (!hasAdmin) {
         staff_.push_back(std::make_shared<Admin>(
             "admin", "admin123", "System Administrator"));
     }
+    owners_ = &owners;
+    owners.bindAccountService(*this);
 }
 
 /// 将工作人员账号列表写回 CSV
@@ -96,9 +99,40 @@ std::vector<StaffProfile> AccountService::staffProfiles() const {
     std::vector<StaffProfile> profiles;
     profiles.reserve(staff_.size());
     for (const auto& user : staff_) {
-        profiles.push_back({user->username(), user->name(), user->role()});
+        const bool conflict = owners_ != nullptr &&
+            isUsernameConflicted(user->username(), *owners_);
+        profiles.push_back(
+            {user->username(), user->name(), user->role(), conflict});
     }
     return profiles;
+}
+
+bool AccountService::hasStaffUsername(const std::string& username) const {
+    return std::any_of(
+        staff_.begin(), staff_.end(), [&](const std::shared_ptr<User>& user) {
+            return user->username() == username;
+        });
+}
+
+bool AccountService::isUsernameConflicted(
+    const std::string& username,
+    const OwnerManagementSystem& owners) const {
+    if (username.empty()) {
+        return false;
+    }
+
+    std::size_t identities = 0;
+    for (const Owner& owner : owners.all()) {
+        if (owner.username() == username) {
+            ++identities;
+        }
+    }
+    for (const auto& user : staff_) {
+        if (user->username() == username) {
+            ++identities;
+        }
+    }
+    return identities > 1;
 }
 
 /// 登录认证：全系统唯一的登录入口
@@ -108,6 +142,11 @@ bool AccountService::authenticate(
     const std::string& username, const std::string& password,
     const OwnerManagementSystem& owners,
     std::shared_ptr<User>& result) const {
+    result.reset();
+    if (isUsernameConflicted(username, owners)) {
+        return false;
+    }
+
     // 第一步：仅 Active 业主允许登录；待审核和已迁出档案继续保留但停用账号。
     for (const Owner& owner : owners.all()) {
         if (owner.status() == OwnerStatus::Active &&
@@ -133,12 +172,11 @@ bool AccountService::authenticate(
 bool AccountService::addStaff(const std::string& username,
                               const std::string& password,
                               const std::string& name, Role role) {
-    const bool duplicate = std::any_of(
-        staff_.begin(), staff_.end(), [&](const std::shared_ptr<User>& user) {
-            return user->username() == username;
-        });
+    const bool duplicate = hasStaffUsername(username);
+    const bool ownerConflict = owners_ != nullptr &&
+                               owners_->hasUsername(username);
     if (username.empty() || password.empty() || role == Role::Owner ||
-        duplicate) {
+        duplicate || ownerConflict) {
         return false;
     }
 

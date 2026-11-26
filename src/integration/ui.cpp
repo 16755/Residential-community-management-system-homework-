@@ -204,7 +204,7 @@ bool choices(const char* label,
 std::vector<const char*> CommunityUI::tableColumns() const {
     switch (state_.page) {
         case Page::Owners:
-            return {"编号", "姓名", "电话", "楼栋", "单元", "房号", "账号", "状态"};
+            return {"编号", "姓名", "电话", "楼栋", "单元", "房号", "账号", "状态", "账号检查"};
         case Page::Fees:
             return {"月份", "收费项目", "应缴", "实缴", "欠费", "缴费日期"};
         case Page::Tasks:
@@ -230,7 +230,7 @@ std::vector<const char*> CommunityUI::tableColumns() const {
         case Page::Points:
             return {"编号", "名称", "类型", "位置", "状态"};
         case Page::Accounts:
-            return {"姓名", "账号", "角色"};
+            return {"姓名", "账号", "角色", "账号检查"};
         default:
             return {};
     }
@@ -300,7 +300,13 @@ void CommunityUI::notify(bool success, const std::string& text) {
 // 登录窗口提交：转换输入编码并认证，成功后清空输入与旧页面状态。
 bool CommunityUI::login() {
     try {
-        if (!system_.accounts_.authenticate(toBusiness(state_.username),
+        const std::string username = toBusiness(state_.username);
+        if (system_.accounts_.isUsernameConflicted(username, system_.owners_)) {
+            notify(false, "该账号对应多个角色，已禁止登录，请联系管理员处理。");
+            state_.password.clear();
+            return false;
+        }
+        if (!system_.accounts_.authenticate(username,
                                             toBusiness(state_.password),
                                             system_.owners_,
                                             system_.currentUser_)) {
@@ -488,7 +494,10 @@ std::vector<CommunityUI::Row> CommunityUI::rows() const {
                              toUtf8(owner.unit()),
                              toUtf8(owner.room()),
                              toUtf8(owner.username()),
-                             ownerStatusName(owner.status())};
+                             ownerStatusName(owner.status()),
+                             system_.accounts_.isUsernameConflicted(
+                                 owner.username(), system_.owners_)
+                                 ? "冲突（禁止登录）" : "正常"};
                 result.push_back(std::move(row));
             }
             break;
@@ -639,7 +648,8 @@ std::vector<CommunityUI::Row> CommunityUI::rows() const {
                 Row row;
                 row.key = toUtf8(profile.username);
                 row.cells = {
-                    toUtf8(profile.name), toUtf8(profile.username), roleName(profile.role)};
+                    toUtf8(profile.name), toUtf8(profile.username), roleName(profile.role),
+                    profile.usernameConflict ? "冲突（禁止登录）" : "正常"};
                 result.push_back(std::move(row));
             }
             break;

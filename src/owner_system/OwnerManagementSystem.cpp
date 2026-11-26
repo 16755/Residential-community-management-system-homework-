@@ -11,11 +11,25 @@
 #include <utility>
 
 #include "common/CsvUtils.h"
+#include "owner_system/AccountService.h"
 
 /// 构造函数：指定数据文件路径并立即加载全部业主
 OwnerManagementSystem::OwnerManagementSystem(std::string file)
     : file_(std::move(file)) {
     load();
+}
+
+void OwnerManagementSystem::bindAccountService(const AccountService& accounts) {
+    accounts_ = &accounts;
+}
+
+bool OwnerManagementSystem::hasUsername(
+    const std::string& username, const std::string& excludeOwnerId) const {
+    return std::any_of(
+        owners_.begin(), owners_.end(), [&](const Owner& owner) {
+            return owner.id() != excludeOwnerId &&
+                   owner.username() == username;
+        });
 }
 
 /// 从 CSV 文件加载全部业主
@@ -90,12 +104,12 @@ std::string OwnerManagementSystem::generateOwnerId() const {
 /// 校验账号非空且不重复；编号由系统生成，新档案统一进入待审核状态。
 std::optional<std::string> OwnerManagementSystem::addOwner(
     const Owner& owner) {
-    const bool duplicateUsername = std::any_of(
-        owners_.begin(), owners_.end(), [&](const Owner& current) {
-            return current.username() == owner.username();
-        });
+    const bool duplicateUsername = hasUsername(owner.username());
+    const bool staffConflict = accounts_ != nullptr &&
+                               accounts_->hasStaffUsername(owner.username());
 
-    if (owner.username().empty() || duplicateUsername) {
+    if (owner.username().empty() || owner.username() == "admin" ||
+        duplicateUsername || staffConflict) {
         return std::nullopt;
     }
 
@@ -112,12 +126,11 @@ std::optional<std::string> OwnerManagementSystem::addOwner(
 
 /// 按编号更新资料；生命周期状态只能由专用流转接口修改。
 bool OwnerManagementSystem::updateOwner(const Owner& owner) {
-    const bool duplicateUsername = std::any_of(
-        owners_.begin(), owners_.end(), [&](const Owner& current) {
-            return current.id() != owner.id() &&
-                   current.username() == owner.username();
-        });
-    if (owner.username().empty() || duplicateUsername) {
+    const bool duplicateUsername = hasUsername(owner.username(), owner.id());
+    const bool staffConflict = accounts_ != nullptr &&
+                               accounts_->hasStaffUsername(owner.username());
+    if (owner.username().empty() || owner.username() == "admin" ||
+        duplicateUsername || staffConflict) {
         return false;
     }
 

@@ -12,6 +12,8 @@
 
 #include "owner_system/IOwnerQuery.h"
 
+class AccountService;
+
 /// 业主管理系统（final）
 /// 职责：业主档案的"数据存储层 + 业务校验层"：
 ///       - 启动时从 CSV 加载全部业主，内存中持有容器；
@@ -22,6 +24,7 @@ class OwnerManagementSystem final : public IOwnerQuery {
 private:
     std::vector<Owner> owners_; ///< 内存中的业主列表
     std::string file_;          ///< 业主数据文件路径
+    const AccountService* accounts_ = nullptr; ///< 全局账号唯一性校验来源
 
     /// 根据现有业主编号生成下一个 Oxxxx 编号
     std::string generateOwnerId() const;
@@ -33,6 +36,12 @@ private:
 public:
     /// 构造函数：指定数据文件路径并立即加载全部业主
     explicit OwnerManagementSystem(std::string file = "data/owners.csv");
+
+    /// 绑定账号服务，使业主新增和修改能够检查工作人员账号。
+    void bindAccountService(const AccountService& accounts);
+    /// 查询业主账号是否已存在；可排除正在修改的业主编号。
+    bool hasUsername(const std::string& username,
+                     const std::string& excludeOwnerId = "") const;
 
     /// 从 CSV 文件加载全部业主到内存（覆盖式刷新）
     void load();
