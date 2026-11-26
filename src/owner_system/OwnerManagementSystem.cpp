@@ -19,8 +19,7 @@ OwnerManagementSystem::OwnerManagementSystem(std::string file)
 }
 
 /// 从 CSV 文件加载全部业主
-/// 逻辑：跳过表头行，逐行拆分；字段数 >= 8 时按
-///       (编号,姓名,电话,楼栋,单元,房号,账号,密码) 顺序构造 Owner。
+/// 逻辑：第九列为状态；旧的八列数据按 Active 加载以保持兼容。
 void OwnerManagementSystem::load() {
     owners_.clear();
     std::ifstream input(file_);
@@ -30,8 +29,11 @@ void OwnerManagementSystem::load() {
     while (std::getline(input, line)) {
         const std::vector<std::string> fields = splitCsv(line);
         if (fields.size() >= 8) {
+            const OwnerStatus status = fields.size() >= 9
+                ? ownerStatusFromString(fields[8]) : OwnerStatus::Active;
             owners_.emplace_back(fields[0], fields[1], fields[2], fields[3],
-                                 fields[4], fields[5], fields[6], fields[7]);
+                                 fields[4], fields[5], fields[6], fields[7],
+                                 status);
         }
     }
 }
@@ -48,13 +50,14 @@ bool OwnerManagementSystem::save() const {
         return false;
     }
 
-    output << "id,name,phone,building,unit,room,username,password\n";
+    output << "id,name,phone,building,unit,room,username,password,status\n";
     for (const Owner& owner : owners_) {
         output << csvSafe(owner.id()) << ',' << csvSafe(owner.name()) << ','
                 << csvSafe(owner.phone()) << ',' << csvSafe(owner.building())
                 << ',' << csvSafe(owner.unit()) << ',' << csvSafe(owner.room())
                 << ',' << csvSafe(owner.username()) << ','
-                << csvSafe(owner.password()) << '\n';
+                << csvSafe(owner.password()) << ','
+                << ownerStatusToString(owner.status()) << '\n';
     }
     return true;
 }
@@ -84,7 +87,7 @@ std::string OwnerManagementSystem::generateOwnerId() const {
 }
 
 /// 新增业主
-/// 校验账号非空且不重复；编号由系统生成，通过后追加并落盘。
+/// 校验账号非空且不重复；编号由系统生成，新档案统一进入待审核状态。
 std::optional<std::string> OwnerManagementSystem::addOwner(
     const Owner& owner) {
     const bool duplicateUsername = std::any_of(
@@ -99,7 +102,7 @@ std::optional<std::string> OwnerManagementSystem::addOwner(
     const std::string id = generateOwnerId();
     owners_.emplace_back(id, owner.name(), owner.phone(), owner.building(),
                          owner.unit(), owner.room(), owner.username(),
-                         owner.password());
+                         owner.password(), OwnerStatus::Pending);
     if (!save()) {
         owners_.pop_back();
         return std::nullopt;
@@ -107,30 +110,65 @@ std::optional<std::string> OwnerManagementSystem::addOwner(
     return id;
 }
 
-/// 按编号覆盖更新业主信息：找到同编号业主则整体替换并落盘
+/// 按编号更新资料；生命周期状态只能由专用流转接口修改。
 bool OwnerManagementSystem::updateOwner(const Owner& owner) {
+    const bool duplicateUsername = std::any_of(
+        owners_.begin(), owners_.end(), [&](const Owner& current) {
+            return current.id() != owner.id() &&
+                   current.username() == owner.username();
+        });
+    if (owner.username().empty() || duplicateUsername) {
+        return false;
+    }
+
     for (Owner& current : owners_) {
         if (current.id() == owner.id()) {
-            current = owner;
-            return save();
+            const Owner previous = current;
+            current = Owner(current.id(), owner.name(), owner.phone(),
+                            owner.building(), owner.unit(), owner.room(),
+                            owner.username(), owner.password(),
+                            current.status());
+            if (!save()) {
+                current = previous;
+                return false;
+            }
+            return true;
         }
     }
     return false; // 未找到该编号
 }
 
-/// 按编号删除业主：使用 remove_if 移出所有匹配记录
-bool OwnerManagementSystem::removeOwner(const std::string& ownerId) {
-    const auto newEnd = std::remove_if(
-        owners_.begin(), owners_.end(), [&](const Owner& owner) {
-            return owner.id() == ownerId;
-        });
+bool OwnerManagementSystem::changeStatus(const std::string& ownerId,
+                                         OwnerStatus expected,
+                                         OwnerStatus target) {
+    for (Owner& owner : owners_) {
+        if (owner.id() != ownerId || owner.status() != expected) {
+            continue;
+        }
 
-    if (newEnd == owners_.end()) {
-        return false; // 没有匹配项，删除失败
+        const Owner previous = owner;
+        owner = Owner(owner.id(), owner.name(), owner.phone(), owner.building(),
+                      owner.unit(), owner.room(), owner.username(),
+                      owner.password(), target);
+        if (!save()) {
+            owner = previous;
+            return false;
+        }
+        return true;
     }
+    return false;
+}
 
-    owners_.erase(newEnd, owners_.end());
-    return save();
+bool OwnerManagementSystem::approveOwner(const std::string& ownerId) {
+    return changeStatus(ownerId, OwnerStatus::Pending, OwnerStatus::Active);
+}
+
+bool OwnerManagementSystem::moveOutOwner(const std::string& ownerId) {
+    return changeStatus(ownerId, OwnerStatus::Active, OwnerStatus::MovedOut);
+}
+
+bool OwnerManagementSystem::removeOwner(const std::string& ownerId) {
+    return moveOutOwner(ownerId);
 }
 
 /// 按编号查找业主：线性遍历返回第一个匹配项（实现 IOwnerQuery 接口）

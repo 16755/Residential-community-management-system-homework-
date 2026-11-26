@@ -398,12 +398,13 @@ void IntegrationSystem::adminMenu() {
     while (true) {
         std::cout << "\n管理员菜单\n"
                   << "1. 添加业主\n"
-                  << "2. 删除业主\n"
-                  << "3. 列出业主\n"
-                  << "4. 添加工作人员账号\n"
-                  << "5. 进入物业管理\n"
-                  << "6. 进入门禁管理\n"
-                  << "7. 删除工作人员账号\n"
+                  << "2. 审核业主\n"
+                  << "3. 办理业主迁出\n"
+                  << "4. 列出业主\n"
+                  << "5. 添加工作人员账号\n"
+                  << "6. 进入物业管理\n"
+                  << "7. 进入门禁管理\n"
+                  << "8. 删除工作人员账号\n"
                   << "0. 返回\n";
         const std::string choice = input("请选择：");
 
@@ -426,17 +427,20 @@ void IntegrationSystem::adminMenu() {
             std::cout << (id ? "添加成功，编号：" + *id + "\n"
                              : "添加失败。\n");
         } else if (choice == "2") {
-            // 按编号删除业主
             const std::string ownerId = input("业主编号：");
-            std::cout << (owners_.removeOwner(ownerId) ? "删除成功。\n"
-                                                       : "删除失败。\n");
+            std::cout << (owners_.approveOwner(ownerId) ? "审核通过。\n"
+                                                        : "审核失败。\n");
         } else if (choice == "3") {
+            const std::string ownerId = input("业主编号：");
+            std::cout << (owners_.moveOutOwner(ownerId) ? "迁出成功。\n"
+                                                        : "迁出失败。\n");
+        } else if (choice == "4") {
             // 列出全部业主
             for (const Owner& owner : owners_.all()) {
                 std::cout << owner.profile() << "，电话：" << owner.phone()
                           << '\n';
             }
-        } else if (choice == "4") {
+        } else if (choice == "5") {
             // 新增工作人员账号：先解析角色文本，再交账号服务校验保存
             const std::string username = input("账号：");
             const std::string password = input("密码：");
@@ -458,11 +462,11 @@ void IntegrationSystem::adminMenu() {
                                  accounts_.addStaff(username, password, name,
                                                     role);
             std::cout << (success ? "账号创建成功。\n" : "账号创建失败。\n");
-        } else if (choice == "5") {
-            propertyMenu(); // 管理员代管物业菜单
         } else if (choice == "6") {
-            accessMenu();   // 管理员代管门禁菜单
+            propertyMenu(); // 管理员代管物业菜单
         } else if (choice == "7") {
+            accessMenu();   // 管理员代管门禁菜单
+        } else if (choice == "8") {
             const std::string username = input("要删除的工作人员账号：");
             if (!username.empty() && input("确认删除 " + username + "？（y/N）：") == "y") {
                 switch (accounts_.removeStaff(username, *currentUser_)) {

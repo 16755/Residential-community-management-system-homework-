@@ -21,4 +21,10 @@ public:
     /// @return 找到则返回该业主的副本，否则返回 std::nullopt
     virtual std::optional<Owner> findOwnerById(
         const std::string& ownerId) const = 0;
+
+    /// 判断业主是否处于可办理新业务的 Active 状态。
+    bool isOwnerActive(const std::string& ownerId) const {
+        const auto owner = findOwnerById(ownerId);
+        return owner.has_value() && owner->status() == OwnerStatus::Active;
+    }
 };

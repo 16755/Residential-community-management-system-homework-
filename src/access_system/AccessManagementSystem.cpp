@@ -292,7 +292,7 @@ const std::vector<AccessPoint>& AccessManagementSystem::accessPoints() const {
 /// 登记一次业主出入：编号和时间由系统使用同一次取时结果生成。
 std::optional<std::string> AccessManagementSystem::registerPerson(
     const AccessRecord& record) {
-    const bool ownerExists = owners_.findOwnerById(record.personId).has_value();
+    const bool ownerExists = owners_.isOwnerActive(record.personId);
     const AccessPoint* point = findEnabledPoint(record.gateId);
     if (record.personId.empty() || record.personType != "Owner" ||
         record.direction.empty() || record.gateId.empty() || !ownerExists ||
@@ -355,7 +355,7 @@ bool AccessManagementSystem::registerPerson(const Visitor& input) {
         input.gateId.empty()) {
         return false;
     }
-    if (!owners_.findOwnerById(input.hostOwnerId).has_value()) {
+    if (!owners_.isOwnerActive(input.hostOwnerId)) {
         return false;
     }
     if (findEnabledPoint(input.gateId) == nullptr) {
@@ -417,7 +417,7 @@ bool AccessManagementSystem::visitorCheckout(const std::string& visitorId,
 /// 车辆只能通过车库大门或小区大门，楼栋门禁止车辆通行。
 std::optional<std::string> AccessManagementSystem::registerVehicle(
     const VehicleAccessRecord& record) {
-    const bool ownerExists = owners_.findOwnerById(record.ownerId).has_value();
+    const bool ownerExists = owners_.isOwnerActive(record.ownerId);
     const AccessPoint* point = findEnabledPoint(record.gateId);
     const bool vehicleAllowed = point != nullptr &&
         (point->type == "GarageGate" || point->type == "CommunityGate");
@@ -447,7 +447,7 @@ std::optional<std::string> AccessManagementSystem::registerVehicle(
 /// 编号基于车牌生成；同车牌已占用则拒绝，已释放则复用原编号。
 std::optional<std::string> AccessManagementSystem::assignParking(
     const ParkingRecord& record) {
-    const bool ownerExists = owners_.findOwnerById(record.ownerId).has_value();
+    const bool ownerExists = owners_.isOwnerActive(record.ownerId);
     if (record.plateNumber.empty() || record.ownerId.empty() ||
         record.registeredAt.empty() || !ownerExists) {
         return std::nullopt;

@@ -221,7 +221,7 @@ bool PropertyManagementSystem::updateFeeItem(const FeeItem& item) {
 /// 校验：业主存在、项目编号/月份非空、金额合法（0 <= paid <= due）；
 ///       通过后追加缴费记录并落盘。
 bool PropertyManagementSystem::recordPayment(const FeeRecord& record) {
-    if (!owners_.findOwnerById(record.ownerId).has_value() ||
+    if (!owners_.isOwnerActive(record.ownerId) ||
         record.itemId.empty() || record.month.empty() || record.due < 0.0 ||
         record.paid < 0.0 || record.paid > record.due) {
         return false;
@@ -319,7 +319,8 @@ bool PropertyManagementSystem::updateTaskStatus(
 
 bool PropertyManagementSystem::isCurrentOwner(const Owner& owner) const {
     const auto current = owners_.findOwnerById(owner.id());
-    return current && !owner.username().empty() && current->username() == owner.username();
+    return current && current->status() == OwnerStatus::Active &&
+           !owner.username().empty() && current->username() == owner.username();
 }
 
 std::optional<std::string> PropertyManagementSystem::submitRepair(

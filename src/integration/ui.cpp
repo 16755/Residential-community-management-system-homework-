@@ -59,6 +59,18 @@ const char* roleName(Role role) {
     }
 }
 
+const char* ownerStatusName(OwnerStatus status) {
+    switch (status) {
+        case OwnerStatus::Pending:
+            return "待审核";
+        case OwnerStatus::Active:
+            return "正常入住";
+        case OwnerStatus::MovedOut:
+            return "已迁出";
+    }
+    return "未知";
+}
+
 // 将业务中保存的英文状态转换为表格和详情中展示的中文。
 std::string translated(const std::string& value) {
     if (value == "Enter") {
@@ -192,7 +204,7 @@ bool choices(const char* label,
 std::vector<const char*> CommunityUI::tableColumns() const {
     switch (state_.page) {
         case Page::Owners:
-            return {"编号", "姓名", "电话", "楼栋", "单元", "房号", "账号"};
+            return {"编号", "姓名", "电话", "楼栋", "单元", "房号", "账号", "状态"};
         case Page::Fees:
             return {"月份", "收费项目", "应缴", "实缴", "欠费", "缴费日期"};
         case Page::Tasks:
@@ -360,10 +372,13 @@ void CommunityUI::changePage(Page page) {
     initializeForm();
 }
 
-// 业主下拉框：显示“编号 + 姓名”，保存并提交业主编号。
+// 业主下拉框：只有审核通过且未迁出的业主可以办理新业务。
 bool CommunityUI::ownerCombo(const char* label, std::string& selected) {
     std::vector<std::pair<std::string, std::string>> items;
     for (const Owner& owner : system_.owners_.all()) {
+        if (owner.status() != OwnerStatus::Active) {
+            continue;
+        }
         items.emplace_back(toUtf8(owner.id()), toUtf8(owner.id() + "  " + owner.name()));
     }
     return choices(label, selected, items);
@@ -472,7 +487,8 @@ std::vector<CommunityUI::Row> CommunityUI::rows() const {
                              toUtf8(owner.building()),
                              toUtf8(owner.unit()),
                              toUtf8(owner.room()),
-                             toUtf8(owner.username())};
+                             toUtf8(owner.username()),
+                             ownerStatusName(owner.status())};
                 result.push_back(std::move(row));
             }
             break;
@@ -832,7 +848,8 @@ void CommunityUI::submit(Action action) {
 
     Page requiredPage = state_.page;
     switch (action) {
-        case Action::DeleteOwner:
+        case Action::ApproveOwner:
+        case Action::MoveOutOwner:
             requiredPage = Page::Owners;
             break;
         case Action::DeleteStaff:
@@ -890,8 +907,11 @@ void CommunityUI::submit(Action action) {
                 validateCreateForm(businessFields);
                 success = createRecord(businessFields, generatedId);
                 break;
-            case Action::DeleteOwner:
-                success = system_.owners_.removeOwner(selectedId);
+            case Action::ApproveOwner:
+                success = system_.owners_.approveOwner(selectedId);
+                break;
+            case Action::MoveOutOwner:
+                success = system_.owners_.moveOutOwner(selectedId);
                 break;
             case Action::DeleteStaff:
                 switch (system_.accounts_.removeStaff(selectedId, *system_.currentUser_)) {
@@ -1004,7 +1024,7 @@ void CommunityUI::submit(Action action) {
             if (generatedId.has_value()) {
                 state_.selected = toUtf8(*generatedId);
             }
-        } else if (action == Action::DeleteOwner || action == Action::DeleteStaff) {
+        } else if (action == Action::DeleteStaff) {
             state_.selected.clear();
         }
     } catch (const std::invalid_argument&) {
@@ -1460,17 +1480,39 @@ void CommunityUI::renderSelectedActions() {
     if (!state_.selected.empty()) {
         ImGui::Separator();
         ImGui::TextWrapped("已选择：%s", state_.selected.c_str());
-        if (state_.page == Page::Owners || state_.page == Page::Points ||
-            state_.page == Page::Accounts) {
-            const char* label = "删除所选业主";
-            Action confirmAction = Action::DeleteOwner;
-            if (state_.page == Page::Points) {
-                label = "停用所选门禁点";
-                confirmAction = Action::DisablePoint;
-            } else if (state_.page == Page::Accounts) {
-                label = "删除所选工作人员";
-                confirmAction = Action::DeleteStaff;
+        if (state_.page == Page::Owners) {
+            const auto selected = system_.owners_.findOwnerById(toBusiness(state_.selected));
+            if (!selected.has_value()) {
+                return;
             }
+            if (selected->status() == OwnerStatus::MovedOut) {
+                ImGui::TextDisabled("该业主已迁出，历史档案继续保留。");
+                return;
+            }
+            const bool pending = selected->status() == OwnerStatus::Pending;
+            const char* label = pending ? "审核通过" : "办理迁出";
+            const Action confirmAction = pending ? Action::ApproveOwner : Action::MoveOutOwner;
+            if (actionButton(label)) {
+                ImGui::OpenPopup("确认业主状态操作");
+            }
+            if (ImGui::BeginPopupModal(
+                    "确认业主状态操作", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+                ImGui::Text("确认%s？", label);
+                ImGui::TextUnformatted(state_.selected.c_str());
+                if (actionButton("确认", 32, 100)) {
+                    submit(confirmAction);
+                    ImGui::CloseCurrentPopup();
+                }
+                ImGui::SameLine();
+                if (actionButton("取消", 32, 100)) {
+                    ImGui::CloseCurrentPopup();
+                }
+                ImGui::EndPopup();
+            }
+        } else if (state_.page == Page::Points || state_.page == Page::Accounts) {
+            const bool pointPage = state_.page == Page::Points;
+            const char* label = pointPage ? "停用所选门禁点" : "删除所选工作人员";
+            const Action confirmAction = pointPage ? Action::DisablePoint : Action::DeleteStaff;
             if (actionButton(label)) {
                 ImGui::OpenPopup("确认操作");
             }

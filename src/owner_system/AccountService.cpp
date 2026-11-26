@@ -108,9 +108,10 @@ bool AccountService::authenticate(
     const std::string& username, const std::string& password,
     const OwnerManagementSystem& owners,
     std::shared_ptr<User>& result) const {
-    // 第一步：匹配业主账号
+    // 第一步：仅 Active 业主允许登录；待审核和已迁出档案继续保留但停用账号。
     for (const Owner& owner : owners.all()) {
-        if (owner.username() == username && owner.password() == password) {
+        if (owner.status() == OwnerStatus::Active &&
+            owner.username() == username && owner.password() == password) {
             result = std::make_shared<Owner>(owner);
             return true;
         }

@@ -25,6 +25,10 @@ private:
 
     /// 根据现有业主编号生成下一个 Oxxxx 编号
     std::string generateOwnerId() const;
+    /// 按预期的前置状态执行单向状态流转，并在保存失败时回滚。
+    bool changeStatus(const std::string& ownerId,
+                      OwnerStatus expected,
+                      OwnerStatus target);
 
 public:
     /// 构造函数：指定数据文件路径并立即加载全部业主
@@ -34,12 +38,16 @@ public:
     void load();
     /// 将内存中的业主列表全部写回 CSV 文件
     bool save() const;
-    /// 新增业主（自动生成编号，校验账号非空且不重复）
+    /// 新增业主（自动生成编号并统一登记为 Pending）
     /// 成功返回生成的编号，失败返回 std::nullopt
     std::optional<std::string> addOwner(const Owner& owner);
     /// 按编号覆盖更新业主信息（不存在则失败）
     bool updateOwner(const Owner& owner);
-    /// 按编号删除业主（不存在则失败）
+    /// 审核待审核业主：仅允许 Pending -> Active
+    bool approveOwner(const std::string& ownerId);
+    /// 办理业主迁出：仅允许 Active -> MovedOut
+    bool moveOutOwner(const std::string& ownerId);
+    /// 兼容旧调用；不再物理删除，等价于办理迁出
     bool removeOwner(const std::string& ownerId);
 
     /// 按编号查找业主（实现 IOwnerQuery 接口）

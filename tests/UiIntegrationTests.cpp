@@ -161,8 +161,20 @@ struct CommunityUiTestAccess {
 
         create(ui, Page::Owners, {"测试业主甲", "13800138000", "1", "1", "101", "owner1", "pw1"});
         check(ui.state_.selected == "O0001", "Owner ID is not automatic");
+        check(ui.rows()[0].cells[7] == "待审核", "New owner is not pending");
+        ui.logout();
+        ui.state_.username = "owner1"; ui.state_.password = "pw1";
+        check(!ui.login(), "Pending owner can sign in");
+        ui.state_.username = "admin"; ui.state_.password = "admin123";
+        check(ui.login(), "Admin re-login failed");
+        ui.changePage(Page::Owners); ui.state_.selected = "O0001";
+        ui.submit(Action::ApproveOwner); success(ui);
+        check(ui.rows()[0].cells[7] == "正常入住", "Approved owner is not active");
+        ui.submit(Action::ApproveOwner);
+        check(ui.state_.error, "Active owner was approved twice");
         create(ui, Page::Owners, {"测试业主乙", "13800138001", "1", "1", "102", "owner2", "pw2"});
         check(ui.state_.selected == "O0002", "Owner sequence failed");
+        ui.submit(Action::ApproveOwner); success(ui);
         create(ui, Page::Points, {"小区南门", "CommunityGate", "南侧"});
         check(ui.state_.selected == "AP0001", "Gate ID failed");
         create(ui, Page::Points, {"一栋单元门", "BuildingGate", "一栋"});
@@ -283,16 +295,44 @@ struct CommunityUiTestAccess {
         }
         loginAs("admin", "admin123");
         create(ui, Page::Owners, {"临时业主", "", "", "", "", "temporary", "pw"});
-        ui.submit(Action::DeleteOwner); success(ui);
-        check(ui.rows().size() == 2, "Owner delete failed");
+        ui.submit(Action::MoveOutOwner);
+        check(ui.state_.error, "Pending owner skipped approval and moved out");
+        ui.submit(Action::ApproveOwner); success(ui);
+        ui.submit(Action::MoveOutOwner); success(ui);
+        check(ui.rows().size() == 3 && ui.rows()[2].cells[7] == "已迁出",
+              "Moved-out owner archive was not retained");
         // Reject unsupported Unicode rather than silently replacing it with '?'.
         ui.state_.form[0] = "😀"; ui.state_.form[5] = "emoji"; ui.state_.form[6] = "pw";
         ui.submit(Action::Create); check(ui.state_.error, "Lossy encoding accepted");
 
         OwnerManagementSystem reloaded((directory / "owners.csv").string());
-        check(reloaded.all().size() == 2, "Owner persistence failed");
+        check(reloaded.all().size() == 3, "Owner persistence failed");
         check(community_ui::toUtf8(reloaded.all()[0].name()) == "测试业主甲", "Chinese name corrupted");
+        check(reloaded.all()[0].status() == OwnerStatus::Active &&
+              reloaded.all()[2].status() == OwnerStatus::MovedOut,
+              "Owner status persistence failed");
+        const auto legacyOwnerFile = directory / "legacy_owners.csv";
+        std::ofstream legacyOwnersOutput(legacyOwnerFile);
+        legacyOwnersOutput << "id,name,phone,building,unit,room,username,password\n"
+                              "O0099,Legacy,10086,9,1,901,legacy,pw\n";
+        legacyOwnersOutput.close();
+        OwnerManagementSystem legacyOwners(legacyOwnerFile.string());
+        check(legacyOwners.all().size() == 1 &&
+              legacyOwners.all()[0].status() == OwnerStatus::Active,
+              "Legacy owner CSV is not treated as active");
+        AccountService ownerAccounts((directory / "accounts.csv").string());
+        ownerAccounts.load(reloaded);
+        std::shared_ptr<User> ownerAccount;
+        check(!ownerAccounts.authenticate("temporary", "pw", reloaded, ownerAccount),
+              "Moved-out owner can sign in");
         AccessManagementSystem access(reloaded, directory.string());
+        AccessRecord movedOutAccess;
+        movedOutAccess.personId = "O0003";
+        movedOutAccess.personType = "Owner";
+        movedOutAccess.direction = "Enter";
+        movedOutAccess.gateId = "AP0001";
+        check(!access.registerPerson(movedOutAccess).has_value(),
+              "Moved-out owner can create new access records");
         const auto vehicles = access.queryVehicle(community_ui::toBusiness("京A12345"));
         check(vehicles.size() == 1 && !vehicles[0].time.empty(), "Automatic time not persisted");
         check(vehicles[0].id.substr(3, 14) ==
@@ -301,6 +341,13 @@ struct CommunityUiTestAccess {
             vehicles[0].time.substr(14, 2) + vehicles[0].time.substr(17, 2), "ID and time disagree");
         check(community_ui::toUtf8(access.parking()[0].spaceId) == "PK-京A12345", "Chinese plate corrupted");
         PropertyManagementSystem property(reloaded, directory.string());
+        FeeRecord movedOutFee;
+        movedOutFee.ownerId = "O0003";
+        movedOutFee.itemId = "F001";
+        movedOutFee.month = "2026-12";
+        movedOutFee.due = 100;
+        check(!property.recordPayment(movedOutFee),
+              "Moved-out owner can create new fee records");
         check(property.outstanding("O0001") == 40, "Outstanding persistence failed");
         check(property.queryTasks()[0].status == TaskStatus::Completed, "Task persistence failed");
         check(property.queryTasks()[0].assignee == "property", "Assignee account association changed");

@@ -65,7 +65,8 @@ private:
     // 操作面板按钮统一分发到 submit，集中检查权限并调用业务接口。
     enum class Action {
         Create,
-        DeleteOwner,
+        ApproveOwner,
+        MoveOutOwner,
         DeleteStaff,
         AssignTask,
         AdvanceTask,
